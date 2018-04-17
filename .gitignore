@@ -6,5 +6,5 @@
 *.log
 *.lot
 *.out
-*.xml
+tex/*.xml
 *.toc
