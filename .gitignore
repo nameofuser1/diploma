@@ -8,3 +8,5 @@
 *.out
 tex/*.xml
 *.toc
+*.swp
+*.pyc
