@@ -1,8 +1,8 @@
 import numpy as np
 import sympy as sym
 
-from utils import *
-from ..ik import ik
+# from utils import *
+# from ..ik import ik
 
 UR10_DOF = 6
 
@@ -37,55 +37,172 @@ O45_len = np.linalg.norm(O45[:3])
 O56_len = np.linalg.norm(O56[:3])
 O6ee_len = np.linalg.norm(O6ee[:3])
 
-# Transform expressions
-tf01 = homo_shift_rot_z(0, O01)
-tf12 = homo_shift_rot_z(q[0], homo_rot_z(q[0])*O12)
-tf23 = homo_shift_rot_x(-q[1], homo_rot_x(-q[1])*O23)
-tf34 = homo_shift_rot_x(-q[2], homo_rot_x(-q[2])*O34)
-tf45 = homo_shift_rot_x(-q[3], homo_rot_x(-q[3])*O45)
-tf56 = homo_shift_rot_z(q[4], homo_rot_z(q[4])*O56)
-tf67 = homo_shift_rot_x(-q[5], homo_rot_x(-q[5])*O6ee)
+WORLD_FRAME = 0
+JOINT1_FRAME = 1
+JOINT2_FRAME = 2
+JOINT3_FRAME = 3
+JOINT4_FRAME = 4
+JOINT5_FRAME = 5
+JOINT6_FRAME = 6
 
-tf07 = tf01*tf12*tf23*tf34*tf45*tf56*tf67
+TF01_ID = 0
+TF12_ID = 1
+TF23_ID = 2
+TF34_ID = 3
+TF45_ID = 4
+TF56_ID = 5
+TF67_ID = 6
+TF_NUM = 7
 
-vec = np.asarray([0, 0, 0, 1])
-ee_vec = tf07*vec
+ROT_AXIS_X = 'x'
+ROT_AXIS_Y = 'y'
+ROT_AXIS_Z = 'z'
+
+# One additional trasformation is from World frame to UR10 base frame
+TF = [np.zeros((4, 4), dtype=np.float64) for i in range(UR10_DOF+1)]
+
+TF_SIGN = [1., 1., -1., -1., -1., 1., -1.]
+
+# List of relative origins
+relative_origins = [O01, O12, O23, O34, O45, O56, O6ee]
+print(relative_origins)
+
+rotations_axis = [ROT_AXIS_Z, ROT_AXIS_Z, ROT_AXIS_X, ROT_AXIS_X,
+                  ROT_AXIS_X, ROT_AXIS_Z, ROT_AXIS_X]
+
+# Matrix used when rotating shift vector. Used in order not to allocate
+# new on on each computation
+shift_rotation_matrix = np.zeros((4, 4), dtype=np.float64)
 
 
-def transform(_q):
-    subdict = {}
-    for i in range(UR10_DOF):
-        subdict[q[i]] = _q[i]
+def __tf_rotation_config(M, axis, q):
+    """
+    @brief      Configures rotation part of transformation matrix
 
-    val = np.array(ee_vec.subs(subdict)).astype(np.float64)
-    return val.reshape(val.shape[0])[:-1]
+    @param[out] M       -   transformation matrix at least [3x3]
+    @param[in]  axis    -   rotation axis
+    @param[in]  q       -   joint angles
+    """
+    cs = np.cos
+    sn = np.sin
+
+    if axis == ROT_AXIS_X:
+        M[0, 0] = 1.
+        M[1, 1] = cs(q)
+        M[1, 2] = -sn(q)
+        M[2, 1] = sn(q)
+        M[2, 2] = cs(q)
+
+    elif axis == ROT_AXIS_Y:
+        M[0, 0] = cs(q)
+        M[0, 2] = sn(q)
+        M[1, 1] = 1.,
+        M[2, 0] = -sn(q)
+        M[2, 2] = cs(q)
+
+    elif axis == ROT_AXIS_Z:
+        M[0, 0] = cs(q)
+        M[0, 1] = -sn(q)
+        M[1, 0] = sn(q)
+        M[1, 1] = cs(q)
+        M[2, 2] = 1.
+
+    else:
+        raise ValueError("Unknown rotation axis")
 
 
-J = ee_vec.jacobian(sym.Matrix(q))
-print("Jacobian shape is " + str(J.shape))
-J.row_del(-1)
-print("Without row - " + str(J.shape))
+def __tf_shift_config(M, axis, q, ee_vec):
+    shift_rotation_matrix.fill(0.)
+    __tf_rotation_config(shift_rotation_matrix, axis, q)
+    shift_vec = np.dot(shift_rotation_matrix, ee_vec)
+
+    M[:, 3] = shift_vec[:]
+    M[3, 3] = 1
+
+
+def __tf_matrix_config(M, axis, q, ee_vec):
+    """
+    @brief      Configures transformation matrix
+
+    @param[out] M       -   transformation matrix
+    @param[in]  axis    -   axis of rotation
+    @param[in]  q       -   angle of rotation
+    @param[in]  ee_vec  -   end effector vector(from one joint to another)
+
+    @raise      ValueError in case of wrong axis rotation
+    @return     Nothing
+
+    """
+    M.fill(0.)
+    __tf_rotation_config(M, axis, q)
+    __tf_shift_config(M, axis, q, ee_vec)
+    # np.around(M, decimals=4, out=M)
+
+
+def __prepare_transformation_matrices(q, frame_id):
+    """
+    @brief      Prepares transformation matrices for given q.
+                After matrices are configured transformation can be calculated
+                with __transform call
+
+    @param[in]  q           -   rotation angles
+    @param[in]  frame_id    -   frame id from which we transform.
+                                Transformation is to WORLD_FRAME
+    """
+    for i in range(frame_id+1):
+        if i == 0:
+            _q = 0.
+        else:
+            _q = q[i-1]
+
+        tf_m = TF[i]
+        tf_sign = TF_SIGN[i]
+        axis = rotations_axis[i]
+        ee_vec = relative_origins[i]
+        __tf_matrix_config(tf_m, axis, tf_sign*_q, ee_vec)
+
+
+def __transform(vec, frame_id):
+    """
+    Calculates transformation for given end effector
+
+    @param[in] frame_id   -   specifies in which frame vector is placed
+                              Transformation will be performed from this
+                              frame to world one.
+    """
+    if frame_id == WORLD_FRAME:
+        return np.dot(TF[0], vec)
+
+    else:
+        tf_m = np.linalg.multi_dot(TF[:frame_id+1])
+        return np.dot(tf_m, vec)
+
+
+def transform(q, frame_id=JOINT6_FRAME):
+    """
+    """
+    # vec = relative_origins[frame_id]
+    # vec[3] = 1.
+    vec = np.asarray([0., 0., 0., 1.])
+    __prepare_transformation_matrices(q, frame_id)
+    return __transform(vec, frame_id)
 
 
 def test():
-    print(transform(sym.Matrix([0, 0, 0, 0, 0, 0])))
-    print(transform(sym.Matrix([3.14/2, 0, 0, 0, 0, 0])))
-    print(transform([0, 3.14/2, 0, 0, 0, 0]))
-    print(transform([0, 0, 3.14/2, 0, 0, 0]))
-    print(transform([0, 0, 0, 3.14/2, 0, 0]))
-    print(transform([0, 0, 0, 0, 3.14/6, 0]))
-    print(transform([0, 0, 0, 0, 0, 3.14]))
-
-    print(transform([3.14/4, 3.14/2, -3.14/4, -3.14/2, -3.14/6, 3.14]))
+    q = [np.pi/4., np.pi/2., -np.pi/4., -np.pi/2., -np.pi/6., np.pi]
+    for i in range(JOINT6_FRAME+1):
+        print(transform(q, frame_id=i))
 
 
 def test_ik():
-    q_source = np.array([0., 0., 0., 0., 0., 0.])
+    # q_source = np.array([0., 0., 0., 0., 0., 0.])
     q_target = np.array([3.14/4, 3.14/2, -3.14/4, -3.14/2, -3.14/6, 3.14])
-    source = transform(q_source)
+    # source = transform(q_source)
     target = transform(q_target)
 
-    ik_val = ik.ik_pseudoinverse_jacobian(J, q, q_source, source, target, transform)
+    ik_val = None
+    # ik_val = ik.ik_pseudoinverse_jacobian(J, q, q_source,
+    # source, target, transform)
     ik_ee = transform(ik_val)
 
     print("Target angles are: " + str(q_target))
@@ -96,4 +213,4 @@ def test_ik():
     print("IK angles error: " + str(np.subtract(q_target, ik_val)))
 
 test()
-test_ik()
+# test_ik()
