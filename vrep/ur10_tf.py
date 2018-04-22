@@ -2,7 +2,7 @@ import numpy as np
 import sympy as sym
 
 # from utils import *
-# from ..ik import ik
+from ik import ik
 
 UR10_DOF = 6
 
@@ -58,17 +58,29 @@ ROT_AXIS_X = 'x'
 ROT_AXIS_Y = 'y'
 ROT_AXIS_Z = 'z'
 
+AXIS_X = np.asarray([1, 0, 0])
+AXIS_Y = np.asarray([0, 1, 0])
+AXIS_Z = np.asarray([0, 0, 1])
+
 # One additional trasformation is from World frame to UR10 base frame
 TF = [np.zeros((4, 4), dtype=np.float64) for i in range(UR10_DOF+1)]
 
+# Rotation signs for each transformation
 TF_SIGN = [1., 1., -1., -1., -1., 1., -1.]
 
 # List of relative origins
 relative_origins = [O01, O12, O23, O34, O45, O56, O6ee]
-print(relative_origins)
 
+# Rotation axis for each transformation
 rotations_axis = [ROT_AXIS_Z, ROT_AXIS_Z, ROT_AXIS_X, ROT_AXIS_X,
                   ROT_AXIS_X, ROT_AXIS_Z, ROT_AXIS_X]
+
+# Rotation unit vectors
+rotation_axis_vec = [AXIS_Z, AXIS_Z, AXIS_X, AXIS_X, AXIS_X, AXIS_Z, AXIS_X]
+
+# Jacobian placeholder
+jacobian = np.zeros((3, 6), dtype=np.float64)
+
 
 # Matrix used when rotating shift vector. Used in order not to allocate
 # new on on each computation
@@ -171,38 +183,53 @@ def __transform(vec, frame_id):
                               frame to world one.
     """
     if frame_id == WORLD_FRAME:
-        return np.dot(TF[0], vec)
+        return np.dot(TF[0], vec)[:-1]
 
     else:
         tf_m = np.linalg.multi_dot(TF[:frame_id+1])
-        return np.dot(tf_m, vec)
+        return np.dot(tf_m, vec)[:-1]
 
 
 def transform(q, frame_id=JOINT6_FRAME):
     """
     """
-    # vec = relative_origins[frame_id]
-    # vec[3] = 1.
     vec = np.asarray([0., 0., 0., 1.])
     __prepare_transformation_matrices(q, frame_id)
     return __transform(vec, frame_id)
 
 
+def J(q):
+    ee = transform(q, frame_id=JOINT6_FRAME)
+
+    for i in range(JOINT6_FRAME):
+        joint_pos = transform(q, frame_id=i)
+
+        radius_vector = np.subtract(ee, joint_pos)
+        rot_axis = TF_SIGN[i]*rotation_axis_vec[i]
+
+        jacobian_vec = np.cross(rot_axis, radius_vector)
+        jacobian[:, i] = jacobian_vec[:]
+
+    return jacobian
+
+
 def test():
+    print("Testing forward TF")
     q = [np.pi/4., np.pi/2., -np.pi/4., -np.pi/2., -np.pi/6., np.pi]
     for i in range(JOINT6_FRAME+1):
         print(transform(q, frame_id=i))
 
 
 def test_ik():
-    # q_source = np.array([0., 0., 0., 0., 0., 0.])
+    print("\r\nTesting IK")
+    q_source = np.array([0., 0., 0., 0., 0., 0.])
     q_target = np.array([3.14/4, 3.14/2, -3.14/4, -3.14/2, -3.14/6, 3.14])
-    # source = transform(q_source)
+    source = transform(q_source)
     target = transform(q_target)
 
-    ik_val = None
-    # ik_val = ik.ik_pseudoinverse_jacobian(J, q, q_source,
-    # source, target, transform)
+    ik_val = ik.damped_least_squares(J, q_source, source,
+                                     target, transform,
+                                     alpha=0.1, eps=0.01)
     ik_ee = transform(ik_val)
 
     print("Target angles are: " + str(q_target))
@@ -213,4 +240,4 @@ def test_ik():
     print("IK angles error: " + str(np.subtract(q_target, ik_val)))
 
 test()
-# test_ik()
+test_ik()

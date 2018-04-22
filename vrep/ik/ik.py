@@ -1,4 +1,3 @@
-# import sympy as sym
 import numpy as np
 
 
@@ -8,29 +7,17 @@ class IKFailedException(Exception):
         super(IKFailedException, self).__init__(msg)
 
 
-def __create_subdict(q_sym, q_val):
-    subdict = {}
-    for _sym, val in zip(q_sym, q_val):
-        subdict[_sym] = val
-
-    return subdict
+def __compute_pseudoinverse_jacobian(J):
+    return np.linalg.pinv(J)
 
 
-def __compute_pseudoinverse_jacobian(J, q_sym, q_val):
-    subdict = __create_subdict(q_sym, q_val)
-    J_val = np.array(J.subs(subdict)).astype(np.float64)
-
-    return np.linalg.pinv(J_val)
-
-
-def ik_pseudoinverse_jacobian(J, q_sym, q_val, s, t, fk_fcn,
+def ik_pseudoinverse_jacobian(J_fcn, q_start, s, t, fk_fcn,
                               alpha=0.1, max_iter=10000, eps=0.01):
     """
     Computes inverse kinematics using pseudoinverse Jacobian
 
-    @param[in]      J       -   symbolic Jacobian
-    @param[in]      q_sym   -   symbols used in Jacobian
-    @param[in]      q_val   -   current joint values
+    @param[in]      J       -   Function which produces Jacobian J_fnc(q)
+    @param[in]      q_start -   source joint values
     @param[in]      s       -   source position
     @param[in]      t       -   target position
     @param[in]      fk_fcn  -   function that computes forward kinematics
@@ -46,21 +33,18 @@ def ik_pseudoinverse_jacobian(J, q_sym, q_val, s, t, fk_fcn,
                     None in case of failure
     """
     print("Entry")
-    q = np.asarray(q_val)
+    _alpha = alpha
+    q = np.asarray(q_start)
     start_diff = np.linalg.norm(np.subtract(t, s))
 
     dq = 0
     for i in range(max_iter):
-        J_pinv = __compute_pseudoinverse_jacobian(J, q_sym, q)
-        # print(J_pinv)
+        J = J_fcn(q)
+        J_pinv = __compute_pseudoinverse_jacobian(J)
 
         e = np.subtract(t, s)
-        # print(e)
         dq = np.dot(J_pinv, e)
-        # print(dq)
-        # print(q)
         q += dq*alpha
-        # print(q)
 
         s = fk_fcn(q)
 
@@ -69,6 +53,38 @@ def ik_pseudoinverse_jacobian(J, q_sym, q_val, s, t, fk_fcn,
             return np.remainder(q, 2*np.pi)
         elif i % 10 == 0:
             print("Diff is " + str(diff))
-            # alpha = max(alpha*diff/start_diff, 0.01)
+            alpha = min(max(_alpha*diff/start_diff, 0.001), 0.2)
 
     raise IKFailedException("Failed to compute IK with pseudo inverse Jacobian")
+
+
+def damped_least_squares(J_fcn, q_start, s, t, fk_fcn,
+                         alpha=0.3, min_alpha=0.05, max_alpha=0.35,
+                         max_iter=10000, eps=0.01,
+                         damping_ratio=0.3):
+    print("Entry")
+    _alpha = alpha
+    q = np.asarray(q_start)
+    start_diff = np.linalg.norm(np.subtract(t, s))
+
+    dmp_sq = np.square(damping_ratio)
+
+    dq = 0
+    for i in range(max_iter):
+        J = J_fcn(q)
+
+        damped_mat = np.add(np.dot(J, J.T), np.eye(3)*dmp_sq)
+        damped_mat_inv = np.linalg.inv(damped_mat)
+
+        e = np.subtract(t, s)
+        dq = np.dot(np.dot(J.T, damped_mat_inv), e)
+
+        q += dq*alpha
+        s = fk_fcn(q)
+
+        diff = np.linalg.norm(np.subtract(t, s))
+        if diff <= eps:
+            return np.remainder(q, 2*np.pi)
+        elif i % 10 == 0:
+            print("Diff is " + str(diff))
+            alpha = min(max(_alpha*diff/start_diff, min_alpha), max_alpha)
