@@ -7,6 +7,24 @@ class IKFailedException(Exception):
         super(IKFailedException, self).__init__(msg)
 
 
+def __create_history():
+    history = {'J': [],
+               'Jinv': [],
+               'diff': [],
+               'q': [],
+               's': []}
+
+    return history
+
+
+def __update_history(history, J, Jinv, diff, q, s):
+    history['J'].append(np.asarray(J))
+    history['Jinv'].append(np.asarray(Jinv))
+    history['diff'].append(diff)
+    history['q'].append(np.remainder(q, 2*np.pi))
+    history['s'].append(np.asarray(s))
+
+
 def __compute_pseudoinverse_jacobian(J):
     return np.linalg.pinv(J)
 
@@ -32,7 +50,7 @@ def ik_pseudoinverse_jacobian(J_fcn, q_start, s, t, fk_fcn,
     @returns        q which corresponds to target position in case of success
                     None in case of failure
     """
-    print("Entry")
+    history = __create_history()
     _alpha = alpha
     q = np.asarray(q_start)
     start_diff = np.linalg.norm(np.subtract(t, s))
@@ -49,8 +67,10 @@ def ik_pseudoinverse_jacobian(J_fcn, q_start, s, t, fk_fcn,
         s = fk_fcn(q)
 
         diff = np.linalg.norm(np.subtract(t, s))
+        __update_history(history, J, J_pinv, diff, q, s)
+
         if diff <= eps:
-            return np.remainder(q, 2*np.pi)
+            return np.remainder(q, 2*np.pi), history
         elif i % 10 == 0:
             print("Diff is " + str(diff))
             alpha = min(max(_alpha*diff/start_diff, 0.001), 0.2)
@@ -62,7 +82,7 @@ def damped_least_squares(J_fcn, q_start, s, t, fk_fcn,
                          alpha=0.3, min_alpha=0.05, max_alpha=0.35,
                          max_iter=10000, eps=0.01,
                          damping_ratio=0.3):
-    print("Entry")
+    history = __create_history()
     _alpha = alpha
     q = np.asarray(q_start)
     start_diff = np.linalg.norm(np.subtract(t, s))
@@ -83,8 +103,10 @@ def damped_least_squares(J_fcn, q_start, s, t, fk_fcn,
         s = fk_fcn(q)
 
         diff = np.linalg.norm(np.subtract(t, s))
+        __update_history(history, J, damped_mat_inv, diff, q, s)
+
         if diff <= eps:
-            return np.remainder(q, 2*np.pi)
+            return np.remainder(q, 2*np.pi), history
         elif i % 10 == 0:
             print("Diff is " + str(diff))
             alpha = min(max(_alpha*diff/start_diff, min_alpha), max_alpha)

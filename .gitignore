@@ -9,4 +9,5 @@
 tex/*.xml
 *.toc
 *.swp
+*.swo
 *.pyc

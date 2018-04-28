@@ -1,5 +1,6 @@
 import numpy as np
 import sympy as sym
+import matplotlib.pyplot as plt
 
 # from utils import *
 from ik import ik
@@ -198,7 +199,7 @@ def transform(q, frame_id=JOINT6_FRAME):
     return __transform(vec, frame_id)
 
 
-def J(q):
+def J(q, use_orientation=False):
     ee = transform(q, frame_id=JOINT6_FRAME)
 
     for i in range(JOINT6_FRAME):
@@ -220,24 +221,81 @@ def test():
         print(transform(q, frame_id=i))
 
 
-def test_ik():
-    print("\r\nTesting IK")
+def __analyse_history(history):
+    last_diff = 9999999
+
+    for i in range(len(history['diff'])):
+        diff = history['diff'][i]
+
+        if diff > last_diff:
+            print("Moving out!")
+            print(history['J'][i])
+            print(history['Jinv'][i])
+            print(history['q'][i]*180./np.pi)
+            print(history['s'][i])
+
+            break
+        else:
+            last_diff = diff
+
+    J_mag = [np.linalg.norm(_J) for _J in history['J']]
+    Jinv_mag = [np.linalg.norm(Jinv) for Jinv in history['Jinv']]
+
+    print("J inverse max: " + str(np.max(Jinv_mag)))
+
+    l1, = plt.plot(history['diff'], '-', label='Diff')
+    l2, = plt.plot(J_mag, '-', label="J magnitude")
+    l3, = plt.plot(Jinv_mag, '-', label="J inverse magnitude")
+    plt.legend(handles=[l1, l2, l3])
+    plt.show()
+
+
+def test_ik_damped():
+    print("\r\nTesting IK via damped least squares")
     q_source = np.array([0., 0., 0., 0., 0., 0.])
     q_target = np.array([3.14/4, 3.14/2, -3.14/4, -3.14/2, -3.14/6, 3.14])
     source = transform(q_source)
     target = transform(q_target)
 
-    ik_val = ik.damped_least_squares(J, q_source, source,
-                                     target, transform,
-                                     alpha=0.1, eps=0.01)
+    ik_val, history = ik.damped_least_squares(J, q_source, source,
+                                              target, transform,
+                                              alpha=0.1, eps=0.01)
     ik_ee = transform(ik_val)
 
     print("Target angles are: " + str(q_target))
     print("Target position is " + str(target))
-    print("IK solution is: " + str(ik_val))
+    print("IK solution is: " + str(ik_val*180./np.pi))
     print("IK FK position is: " + str(ik_ee))
     print("IK EE vector error: " + str(np.subtract(target, ik_ee)))
     print("IK angles error: " + str(np.subtract(q_target, ik_val)))
 
+    __analyse_history(history)
+
+
+def test_ik_pseudo():
+    print("\r\nTesting IK via pseudo inverse jacobian")
+    q_source = np.array([0., 0., 0., 0., 0., 0.])
+    q_target = np.array([3.14/4, 3.14/2, -3.14/4, -3.14/2, -3.14/6, 3.14])
+    source = transform(q_source)
+    target = transform(q_target)
+
+    ik_val, history = ik.ik_pseudoinverse_jacobian(J, q_source,
+                                                   source, target,
+                                                   transform,
+                                                   alpha=0.1,
+                                                   eps=0.01)
+    ik_ee = transform(ik_val)
+
+    print("Target angles are: " + str(q_target))
+    print("Target position is " + str(target))
+    print("IK solution is: " + str(ik_val*180./np.pi))
+    print("IK FK position is: " + str(ik_ee))
+    print("IK EE vector error: " + str(np.subtract(target, ik_ee)))
+    print("IK angles error: " + str(np.subtract(q_target, ik_val)))
+
+    __analyse_history(history)
+
+
 test()
-test_ik()
+test_ik_damped()
+test_ik_pseudo()
