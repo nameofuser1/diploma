@@ -1,6 +1,7 @@
 import numpy as np
 import sympy as sym
 import matplotlib.pyplot as plt
+from profiler import timeit
 
 # from utils import *
 from ik import ik
@@ -199,6 +200,12 @@ def transform(q, frame_id=JOINT6_FRAME):
     return __transform(vec, frame_id)
 
 
+def O(q):
+    return np.asarray([-q[1] - q[2] - q[3] - q[5],
+                       0,
+                       q[0] + q[4]])
+
+
 def J(q, use_orientation=False):
     ee = transform(q, frame_id=JOINT6_FRAME)
 
@@ -209,7 +216,10 @@ def J(q, use_orientation=False):
         rot_axis = TF_SIGN[i]*rotation_axis_vec[i]
 
         jacobian_vec = np.cross(rot_axis, radius_vector)
-        jacobian[:, i] = jacobian_vec[:]
+        jacobian[:3, i] = jacobian_vec[:]
+
+    if use_orientation:
+        pass
 
     return jacobian
 
@@ -222,31 +232,19 @@ def test():
 
 
 def __analyse_history(history):
-    last_diff = 9999999
-
-    for i in range(len(history['diff'])):
-        diff = history['diff'][i]
-
-        if diff > last_diff:
-            print("Moving out!")
-            print(history['J'][i])
-            print(history['Jinv'][i])
-            print(history['q'][i]*180./np.pi)
-            print(history['s'][i])
-
-            break
-        else:
-            last_diff = diff
-
-    J_mag = [np.linalg.norm(_J) for _J in history['J']]
     Jinv_mag = [np.linalg.norm(Jinv) for Jinv in history['Jinv']]
 
     print("J inverse max: " + str(np.max(Jinv_mag)))
 
-    l1, = plt.plot(history['diff'], '-', label='Diff')
-    l2, = plt.plot(J_mag, '-', label="J magnitude")
+    plt.xlabel("Iteration number, N")
+    plt.ylabel("Magnitude, L2 norm")
+
+    l1, = plt.plot(history['diff'], '-', label='Position error magnitude')
+    plt.legend(handles=[l1])
+    plt.show()
+
     l3, = plt.plot(Jinv_mag, '-', label="J inverse magnitude")
-    plt.legend(handles=[l1, l2, l3])
+    plt.legend(handles=[l3])
     plt.show()
 
 
@@ -257,11 +255,12 @@ def test_ik_damped():
     source = transform(q_source)
     target = transform(q_target)
 
-    ik_val, history = ik.damped_least_squares(J, q_source, source,
-                                              target, transform,
-                                              alpha=0.1, eps=0.01)
+    ikdls = timeit(ik.damped_least_squares)
+    ik_val, history = ikdls(J, q_source, source, target, transform,
+                            alpha=1.0, eps=0.00001, damping_ratio=0.1)
     ik_ee = transform(ik_val)
 
+    print("Source position is " + str(source))
     print("Target angles are: " + str(q_target))
     print("Target position is " + str(target))
     print("IK solution is: " + str(ik_val*180./np.pi))
@@ -279,11 +278,9 @@ def test_ik_pseudo():
     source = transform(q_source)
     target = transform(q_target)
 
-    ik_val, history = ik.ik_pseudoinverse_jacobian(J, q_source,
-                                                   source, target,
-                                                   transform,
-                                                   alpha=0.1,
-                                                   eps=0.01)
+    ikpsj = timeit(ik.ik_pseudoinverse_jacobian)
+    ik_val, history = ikpsj(J, q_source, source, target,
+                            transform, alpha=0.25, eps=0.00001)
     ik_ee = transform(ik_val)
 
     print("Target angles are: " + str(q_target))

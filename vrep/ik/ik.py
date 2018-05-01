@@ -73,7 +73,7 @@ def ik_pseudoinverse_jacobian(J_fcn, q_start, s, t, fk_fcn,
             return np.remainder(q, 2*np.pi), history
         elif i % 10 == 0:
             print("Diff is " + str(diff))
-            alpha = min(max(_alpha*diff/start_diff, 0.001), 0.2)
+            # alpha = min(max(_alpha*diff/start_diff, 0.001), 0.2)
 
     raise IKFailedException("Failed to compute IK with pseudo inverse Jacobian")
 
@@ -109,4 +109,4 @@ def damped_least_squares(J_fcn, q_start, s, t, fk_fcn,
             return np.remainder(q, 2*np.pi), history
         elif i % 10 == 0:
             print("Diff is " + str(diff))
-            alpha = min(max(_alpha*diff/start_diff, min_alpha), max_alpha)
+            # alpha = min(max(_alpha*diff/start_diff, min_alpha), max_alpha)

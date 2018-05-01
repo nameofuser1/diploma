@@ -1,0 +1,5 @@
+time = 172 ms
+J max = 141
+eps = 0.000001
+alpha = 0.25
+damping_ratio = 0.1
