@@ -22,18 +22,25 @@
 
 \input{Dissertation/inclusioncontrol}    % Управление компиляцией отдельных частей диссертации
 
+\setlength{\footskip}{25pt}
+
 \begin{document}
 
 \input{common/renames}                   % Переопределение именований
 
+\setcounter{page}{7}
+
 % Структура диссертации (ГОСТ Р 7.0.11-2011, 4)
-\include{Dissertation/title}           		% Титульный лист
+% \include{Dissertation/title}           		% Титульный лист
 \include{Dissertation/contents}        		% Оглавление
 \include{Dissertation/introduction}    		% Введение
+\include{Dissertation/analogues}			% Глава 0
 \include{Dissertation/ForwardKinematics}	% Глава 1
 \include{Dissertation/InverseKinematics}	% Глава 2
 \include{Dissertation/PathPlanning}    		% Глава 3
 \include{Dissertation/TrajectoryPlanning}	% Глава 4
+\include{Dissertation/ROS_RoboticsControl}		% Глава 5
+\include{Dissertation/ROS_EnvironmentCreation}	% Глава 6
 
 \include{Dissertation/conclusion}      		% Заключение
 % \include{Dissertation/acronyms}        		% Список сокращений и условных обозначений
