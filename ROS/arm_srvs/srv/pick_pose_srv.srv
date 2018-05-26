@@ -1,0 +1,5 @@
+int32 cell_group_id
+int32 xi
+int32 zi
+---
+arm_msgs/pick_pose_msg  pick_pose
