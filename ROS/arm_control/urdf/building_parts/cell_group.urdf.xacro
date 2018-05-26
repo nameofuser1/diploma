@@ -1,0 +1,64 @@
+<?xml version="1.0"?>
+
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:include filename="cell.urdf.xacro" />
+  <xacro:include filename="cell_base.urdf.xacro" />
+
+  <!-- RECUVRSIVE CELLS BASE BUILDER -->
+  <xacro:macro name="recursive_cells_base_builder" params="n x_size parent scale name_prefix id:=0 dir:=${cell_left}">
+    <xacro:if value="${n > 0}">
+      <xacro:property name="pose" value="${dir}"/>
+      <xacro:if value="${n == x_size}">
+        <xacro:property name="pose" value="${cell_same}"/>
+      </xacro:if>
+    
+      <xacro:add_cell_base parent="${parent}" id="${id}" scale="${scale}" name_prefix="${name_prefix}">
+        <xacro:get_cell_origin pose="${pose}" scale="${scale}"/>
+      </xacro:add_cell_base>
+
+      <xacro:recursive_cells_base_builder n="${n-1}" id="${id+1}" x_size="${x_size}" dir="${dir}" scale="${scale}" parent="${name_prefix}_cell_base_${id}" name_prefix="${name_prefix}"/>
+    </xacro:if>
+  </xacro:macro>
+
+  <!-- RECURSIVE CELLS GROUP BUILDER -->
+  <xacro:macro name="recursive_cells_group_builder" params="xn zn x_size z_size name_prefix scale dir:=${cell_left} id:=0 parent:=0">
+    <xacro:if value="${zn}">
+      <xacro:if value="${xn}">
+        <xacro:property name="pose" value="${dir}" />
+        <xacro:unless value="${id}">
+          <xacro:property name="pose" value="${cell_on_base}" />
+        </xacro:unless>
+        
+        <xacro:add_cell parent="${parent}" id="${id}" pose="${pose}" name_prefix="${name_prefix}" scale="${scale}"/>
+        <xacro:recursive_cells_group_builder xn="${xn-1}" zn="${zn}" x_size="${x_size}" z_size="${z_size}" id="${id+1}" dir="${dir}" name_prefix="${name_prefix}" scale="${scale}"/>
+      </xacro:if>
+
+      <xacro:if value="${(xn == 0) and (zn > 1)}">
+        <xacro:property name="new_dir" value="${cell_left}" />
+        <xacro:if value="${dir == cell_left}">
+          <xacro:property name="new_dir" value="${cell_right}" />
+        </xacro:if>
+
+        <xacro:add_cell parent="${parent}" id="${id}" pose="${cell_top}" name_prefix="${name_prefix}" scale="${scale}"/>
+        <xacro:recursive_cells_group_builder xn="${x_size-1}" zn="${zn-1}" x_size="${x_size}" z_size="${z_size}" id="${id+1}" dir="${new_dir}" name_prefix="${name_prefix}" scale="${scale}"/>
+      </xacro:if>
+    </xacro:if>
+  </xacro:macro>
+
+  <!-- CELLS GROUP WHICH IS USED FROM THE OUTSIDE -->
+  <xacro:macro name="cells_group_macro" params="x_size z_size parent id scale dir:=${cell_left} *origin">
+    <xacro:property name="cell_group_name" value="cells_group_${id}"/>
+    <link name="${cell_group_name}" />
+
+    <joint name="cells_group_joint_${id}" type="fixed">
+      <parent link="${parent}" />
+      <child link="cells_group_${id}" />
+      <xacro:insert_block name="origin" />
+    </joint>
+
+    <xacro:recursive_cells_base_builder n="${x_size}" x_size="${x_size}" scale="${scale}" parent="${cell_group_name}" name_prefix="${cell_group_name}" dir="${dir}"/> 
+
+    <xacro:recursive_cells_group_builder xn="${x_size}" zn="${z_size}" parent="${cell_group_name}_cell_base_0" name_prefix="${cell_group_name}" x_size="${x_size}" z_size="${z_size}" dir="${dir}" scale="${scale}"/>
+    
+  </xacro:macro>
+</robot>

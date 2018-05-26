@@ -1,0 +1,45 @@
+<xml version="1.0">	
+    <launch>
+        
+        <include file="$(find arm_gazebo)/launch/ur10.launch" />
+        
+        <!-- By default, we do not start a database (it can be large) -->
+        <arg name="db" default="false" />
+
+        <!-- By default, we are not in debug mode -->
+        <arg name="debug" default="false" />
+        <arg name="limited" default="false"/>
+
+        <!-- 
+        <rosparam command="load" file="$(find ur10_arm_moveit_config)/config/joint_names.yaml"/>-->
+
+        <!-- Load the URDF, SRDF and other .yaml configuration files on the param server -->
+        <include file="$(find ur10_arm_moveit_config)/launch/planning_context.launch">
+            <arg name="load_robot_description" value="true"/>
+            <!--<arg name="limited" value="$(arg limited)"/>-->
+        </include>
+        
+        <node name="joint_state_publisher" pkg="joint_state_publisher" type="joint_state_publisher">
+            <param name="/use_gui" value="false"/> 
+            <rosparam param="/source_list">[/joint_states]</rosparam>
+        </node>
+  
+        <include file="$(find ur10_arm_moveit_config)/launch/move_group.launch">
+            <arg name="allow_trajectory_execution" value="true"/>  
+            <arg name="fake_execution" value="false"/>
+            <arg name="info" value="true"/>
+            <arg name="debug" value="$(arg debug)"/>
+        </include>
+        
+        <!-- Run Rviz and load the default config to see the state of the move_group node -->
+        <include file="$(find ur10_arm_moveit_config)/launch/moveit_rviz.launch">
+            <arg name="config" value="true"/>
+            <arg name="debug" value="$(arg debug)"/>
+        </include>
+
+        <param name="environment_description" textfile="$(find arm_control)/urdf/env.urdf" />
+        <node name="spawn_env" pkg="gazebo_ros" type="spawn_model" args="-param environment_description -urdf -model environment" />
+
+        <node name="arm_mapper_node" pkg="arm_mapper" type="arm_mapper_node" output="screen" />
+    </launch>
+</xml>

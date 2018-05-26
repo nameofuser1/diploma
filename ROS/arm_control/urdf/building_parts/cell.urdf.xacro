@@ -1,0 +1,53 @@
+<?xml version="1.0"?>
+
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="cell_mass" value="3" />
+  <xacro:property name="cell_x_size" value="0.350" />
+  <xacro:property name="cell_y_size" value="0.450" />
+  <xacro:property name="cell_z_size" value="0.210" />
+
+  <xacro:include filename="$(find arm_control)/urdf/building_parts/utils.xacro"/>
+
+  <xacro:macro name="cell_macro" params="id name_prefix parent scale *origin">
+    <link name="${name_prefix}_cell_${id}">
+      <visual>
+        <geometry>
+          <mesh filename="file://$(find arm_control)/meshes/cell.stl" scale="${scale} ${scale} ${scale}"/>
+        </geometry>
+        <material name="Orange">
+          <color rgba="1.0 0.3 0.3 1.0" />
+        </material>
+      
+        <collision>
+          <geometry>
+            <mesh filename="file://$(find arm_control)/meshes/cell.stl" scale="${scale} ${scale} ${scale}"/>
+          </geometry>
+        </collision>
+      </visual>
+
+      <inertial>
+        <origin rpy="0.0 0.0 0.0" xyz="${cell_x_size/2} ${cell_y_size/2} ${cell_z_size/2}"/>
+        <mass value="${cell_mass}" />
+        <inertia ixx="1" iyy="1" izz="1" ixy="0" ixz="0" iyz="0" />
+      </inertial>
+    </link>
+
+    <joint name="${name_prefix}_cell_${id}_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="${name_prefix}_cell_${id}"/>
+      <xacro:insert_block name="origin" />
+    </joint>
+  </xacro:macro>
+
+  <xacro:macro name="add_cell" params="pose id name_prefix scale parent:=0">
+    <xacro:property name="parent_link" value="${parent}" />
+    <xacro:if value="${parent == 0}">
+      <xacro:property name="parent_link" value="${name_prefix}_cell_${id-1}" />
+    </xacro:if>
+    
+    <xacro:cell_macro id="${id}" parent="${parent_link}" name_prefix="${name_prefix}" scale="${scale}">
+      <xacro:get_cell_origin pose="${pose}" scale="${scale}"/>
+    </xacro:cell_macro> 
+
+  </xacro:macro>
+</robot>
