@@ -71,7 +71,7 @@ int main(int argc, char **argv)
     ros::init(argc, argv, "Environment node init.");
     ros::NodeHandle environment_node;
 
-    ros::WallDuration sleep(10);
+    ros::WallDuration sleep(20);
     sleep.sleep();
     
     moveit::planning_interface::PlanningSceneInterface	planning_scene_interface;
@@ -177,7 +177,7 @@ static moveit_msgs::CollisionObject create_table_collision_object(void)
     /* A default pose */
     geometry_msgs::Pose top_pose;
     top_pose.position.x = 0.0;
-    top_pose.position.y = -0.8-0.3;
+    top_pose.position.y = -0.8-0.3-0.5;
     top_pose.position.z = 0.305;
     tf::quaternionTFToMsg(table_quat, top_pose.orientation);
 

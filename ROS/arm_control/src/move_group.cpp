@@ -29,6 +29,12 @@
 static const std::string PLANNING_GROUP = "main_group";
 static const std::string PLANNING_LINK = "ee_link";
 
+namespace rvt = rviz_visual_tools;
+static moveit_visual_tools::MoveItVisualTools* visual_tools;
+
+static void publish_state(robot_state::RobotState &pose_state);
+static void visualize_pose(moveit::planning_interface::MoveGroupInterface &move_group, geometry_msgs::Pose &pose);
+static void visualize_pose(moveit::planning_interface::MoveGroupInterface &move_group, std::vector<double> q);
 static bool plan_and_execute(moveit::planning_interface::MoveGroupInterface &move_group);
 static bool move_after_pick(moveit::planning_interface::MoveGroupInterface &move_group);
 static bool move_to_table_pick_pose(moveit::planning_interface::MoveGroupInterface &move_group);
@@ -48,6 +54,9 @@ int main(int argc, char **argv)
 
     moveit::planning_interface::MoveGroupInterface		move_group(PLANNING_GROUP);
     moveit::planning_interface::PlanningSceneInterface	planning_scene_interface;
+
+    visual_tools = new moveit_visual_tools::MoveItVisualTools("base_link");
+    visual_tools->loadRemoteControl();
 
     ROS_INFO("Current end-effector: %s", move_group.getEndEffector().c_str());
     ROS_INFO("Current end-effector link: %s", move_group.getEndEffectorLink().c_str());
@@ -72,6 +81,7 @@ int main(int argc, char **argv)
         ROS_ERROR("Failed to move to cell pick position");
         return -1;
     } 
+    ROS_INFO_STREAM("Cell pick pose: " << std::endl << move_group.getCurrentPose(PLANNING_LINK));
 
     success = move_after_pick(move_group);
     if(!success)
@@ -80,6 +90,8 @@ int main(int argc, char **argv)
         return -1;
     }
 
+    ROS_INFO_STREAM("Pose after preparing to table pick: " << std::endl << move_group.getCurrentPose(PLANNING_LINK));
+
     success = move_to_table_pick_pose(move_group);
     if(!success)
     {
@@ -87,9 +99,43 @@ int main(int argc, char **argv)
         return -1;
     }
 
-	//ROS_INFO_NAMED("ur5-planning", "Planning succeded: %s", planning_succeded ? "yes" : "no");
+    ROS_INFO_STREAM("Final pose is: " << std::endl << move_group.getCurrentPose(PLANNING_LINK));
 
 	return 0;
+}
+
+
+static void visualize_pose(moveit::planning_interface::MoveGroupInterface &move_group, geometry_msgs::Pose &pose)
+{
+    const robot_state::JointModelGroup* joint_model_group =
+        move_group.getCurrentState()->getJointModelGroup(PLANNING_GROUP);
+
+    robot_state::RobotState pose_state(*move_group.getCurrentState());
+    geometry_msgs::Pose start_pose;
+    start_pose.position = pose.position;
+    start_pose.orientation = pose.orientation;
+    pose_state.setFromIK(joint_model_group, start_pose);
+
+    publish_state(pose_state);
+}
+
+
+static void visualize_pose(moveit::planning_interface::MoveGroupInterface &move_group, std::vector<double> q)
+{
+    const robot_state::JointModelGroup* joint_model_group =
+        move_group.getCurrentState()->getJointModelGroup(PLANNING_GROUP);
+
+    robot_state::RobotState pose_state(*move_group.getCurrentState());
+    pose_state.setJointGroupPositions(joint_model_group->getName(), q);
+
+    publish_state(pose_state);
+}
+
+
+static void publish_state(robot_state::RobotState &pose_state)
+{
+    visual_tools->publishRobotState(pose_state);
+    visual_tools->trigger();
 }
 
 
@@ -103,28 +149,74 @@ static bool move_after_pick(moveit::planning_interface::MoveGroupInterface &move
     for (auto i = q.begin(); i != q.end(); ++i)
         std::cout << *i << ' ';
 
-    if(q.at(0) > M_PI)
+    bool left_half = q.at(0) > (M_PI / 2.0);
+
+    /*********** First motion **********/
+    if(left_half)
     {
         q.at(0) = M_PI;
+        q.at(4) = M_PI/2.0;
     }
     else
     {
         q.at(0) = 0.0;
+        q.at(4) = -M_PI/2.0;
     }
 
     move_group.setJointValueTarget(q);
-    return plan_and_execute(move_group);
+    visualize_pose(move_group, q);
+    if(!plan_and_execute(move_group))
+    {
+        ROS_ERROR("Failed to perform the first motion");
+        return false;
+    }
+
+    /********** Second motion **********/
+    geometry_msgs::PoseStamped current_pose = move_group.getCurrentPose(PLANNING_LINK);
+    ROS_INFO_STREAM("Pose after the first movement: " << current_pose);
+
+    /* Target angles */
+    p_robot_state->copyJointGroupPositions(p_robot_state->getRobotModel()->getJointModelGroup(move_group.getName()), q);
+    q.at(0) = (left_half) ? M_PI : 0.0;
+    q.at(1) = -M_PI/2.0;
+    q.at(2) = M_PI/2.0;
+    q.at(3) = M_PI;
+    q.at(4) = (left_half) ? M_PI/2.0 : -M_PI/2.0;
+    //q.at(5) = (left_half) ? -M_PI/2.0 : M_PI/2.0;
+
+    move_group.setJointValueTarget(q);
+    visualize_pose(move_group, q);
+    if(!plan_and_execute(move_group))
+    {
+        ROS_ERROR("Failed to perform second motion");
+        return false;
+    }
+
+    q.at(0) = -M_PI/2.0;
+    move_group.setJointValueTarget(q);
+    visualize_pose(move_group, q);
+
+    if(!plan_and_execute(move_group))
+    {
+        ROS_ERROR("Failed to perform third motion");
+        return false;
+    }
+
+    move_group.clearPathConstraints();
+
+    return true;
 }
 
 
 static bool move_to_table_pick_pose(moveit::planning_interface::MoveGroupInterface &move_group)
 {
+    /*
     Eigen::AngleAxisd ax_orientation(-0.5*3.14, Eigen::Vector3d::UnitZ());
     Eigen::Quaterniond q_rot(ax_orientation); // FIX
 
     geometry_msgs::Pose target_pose;
     target_pose.position.x = 0.0;
-    target_pose.position.y = -0.7;
+    target_pose.position.y = -0.8-0.3;
     target_pose.position.z = 0.520;
     target_pose.orientation.x = q_rot.x();
     target_pose.orientation.y = q_rot.y();
@@ -132,6 +224,33 @@ static bool move_to_table_pick_pose(moveit::planning_interface::MoveGroupInterfa
     target_pose.orientation.w = q_rot.w();
 
     move_group.setPoseTarget(target_pose, PLANNING_LINK);
+    visualize_pose(move_group, target_pose);
+
+    geometry_msgs::PoseStamped current_pose = move_group.getCurrentPose(PLANNING_LINK);
+    moveit_msgs::OrientationConstraint ocm;
+    ocm.link_name = PLANNING_LINK;
+    ocm.header.frame_id = current_pose.header.frame_id;
+    ocm.orientation = current_pose.pose.orientation;
+    ocm.absolute_x_axis_tolerance = 0.1;
+    ocm.absolute_y_axis_tolerance = 0.1;
+    ocm.absolute_z_axis_tolerance = 2.0*M_PI;
+    ocm.weight = 1.0;
+
+    moveit_msgs::Constraints test_constraints;
+    test_constraints.orientation_constraints.push_back(ocm);
+    move_group.setPathConstraints(test_constraints);*/
+
+    std::vector<double> q = move_group.getCurrentJointValues();
+    robot_state::RobotStatePtr p_robot_state = move_group.getCurrentState();
+    p_robot_state->copyJointGroupPositions(p_robot_state->getRobotModel()->getJointModelGroup(move_group.getName()), q);
+
+    q.at(1) = 0.0;
+    q.at(2) = -M_PI/6.0;
+    q.at(3) = 7.0*M_PI/6.0; //5.0*M_PI/4.0;
+
+    move_group.setJointValueTarget(q);
+    visualize_pose(move_group, q);
+
     return plan_and_execute(move_group);
 }
 
