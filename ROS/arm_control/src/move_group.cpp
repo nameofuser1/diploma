@@ -213,14 +213,14 @@ static bool move_after_pick(moveit::planning_interface::MoveGroupInterface &move
     //q.at(5) = (left_half) ? -M_PI/2.0 : M_PI/2.0;
 
     /* Transition to Cartesian space */
-    /*
+
     robot_model::RobotModelConstPtr robot_model  = move_group.getRobotModel();
     robot_state::RobotState kinematic_state(robot_model);
 
-    const robot_model::JointModelGroup *joint_model_group =
-        move_group.getCurrentState()->getJointModelGroup(PLANNING_GROUP);
+    const robot_model::JointModelGroup joint_model_group =
+        *(move_group.getCurrentState()->getJointModelGroup(PLANNING_GROUP));
 
-    kinematic_state.setJointGroupPositions(joint_model_group, q);
+    kinematic_state.setJointGroupPositions(&joint_model_group, q);
     Eigen::Affine3d end_effector_state = kinematic_state.getGlobalLinkTransform(PLANNING_LINK);
 
     Eigen::Quaterniond q_pos(end_effector_state.rotation());
@@ -230,16 +230,16 @@ static bool move_after_pick(moveit::planning_interface::MoveGroupInterface &move
     target_pose.position.x = tr[0];
     target_pose.position.y = tr[1];
     target_pose.position.z = tr[2];
-    target_pose.orientation.x = (q_pos.x() >= 0.001) ? q_pos.x() : 0.0;
-    target_pose.orientation.y = (q_pos.y() >= 0.001) ? q_pos.y() : 0.0;
-    target_pose.orientation.z = (q_pos.z() >= 0.001) ? q_pos.z() : 0.0;
+    target_pose.orientation.x = (fabs(q_pos.x()) >= 0.001) ? q_pos.x() : 0.0;
+    target_pose.orientation.y = (fabs(q_pos.y()) >= 0.001) ? q_pos.y() : 0.0;
+    target_pose.orientation.z = (fabs(q_pos.z()) >= 0.001) ? q_pos.z() : 0.0;
     target_pose.orientation.w = q_pos.w();
 
     ROS_INFO_STREAM("After pick second required position:" << std::endl << target_pose);
     move_group.clearPathConstraints();
-    move_group.setPoseTarget(target_pose);*/
+    move_group.setPoseTarget(target_pose);
 
-    move_group.setJointValueTarget(q);
+    //move_group.setJointValueTarget(q);
     visualize_pose(move_group, q);
     if(!plan_and_execute(move_group))
     {
@@ -247,7 +247,7 @@ static bool move_after_pick(moveit::planning_interface::MoveGroupInterface &move
         return false;
     }
 
-    //ROS_INFO_STREAM("After pick second actual position: " << std::endl << move_group.getCurrentPose(PLANNING_LINK));
+    ROS_INFO_STREAM("After pick second actual position: " << std::endl << move_group.getCurrentPose(PLANNING_LINK));
 
     q.at(0) = -M_PI/2.0;
     move_group.setJointValueTarget(q);
