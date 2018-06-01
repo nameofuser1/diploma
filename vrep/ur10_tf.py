@@ -1,6 +1,7 @@
 import numpy as np
 import sympy as sym
 import matplotlib.pyplot as plt
+import vrep
 from profiler import timeit
 
 # from utils import *
@@ -224,11 +225,28 @@ def J(q, use_orientation=False):
     return jacobian
 
 
-def test():
-    print("Testing forward TF")
-    q = [np.pi/4., np.pi/2., -np.pi/4., -np.pi/2., -np.pi/6., np.pi]
-    for i in range(JOINT6_FRAME+1):
-        print(transform(q, frame_id=i))
+def vrep_connect_and_get_handles():
+    vrep.simxFinish(-1)
+    clientID=vrep.simxStart('127.0.0.1', 5450, True, True, 5000, 5)
+    joints = []
+
+    joint_base_name = "UR10_joint"
+    if clientID == -1:
+        raise ValueError()
+
+    for i in range(1, 7):
+        joint_name = joint_base_name + str(i)
+        hndl = vrep.simxGetObjectHandle(clientID, joint_name,
+                                        vrep.simx_opmode_blocking)
+
+        if hndl[0] == -1:
+            raise ValueError()
+
+        joints.append(hndl[1])
+
+    return clientID, joints
+
+
 
 
 def __analyse_history(history):
@@ -247,28 +265,6 @@ def __analyse_history(history):
     plt.legend(handles=[l3])
     plt.show()
 
-
-def test_ik_damped():
-    print("\r\nTesting IK via damped least squares")
-    q_source = np.array([0., 0., 0., 0., 0., 0.])
-    q_target = np.array([3.14/4, 3.14/2, -3.14/4, -3.14/2, -3.14/6, 3.14])
-    source = transform(q_source)
-    target = transform(q_target)
-
-    ikdls = timeit(ik.damped_least_squares)
-    ik_val, history = ikdls(J, q_source, source, target, transform,
-                            alpha=1.0, eps=0.00001, damping_ratio=0.1)
-    ik_ee = transform(ik_val)
-
-    print("Source position is " + str(source))
-    print("Target angles are: " + str(q_target))
-    print("Target position is " + str(target))
-    print("IK solution is: " + str(ik_val*180./np.pi))
-    print("IK FK position is: " + str(ik_ee))
-    print("IK EE vector error: " + str(np.subtract(target, ik_ee)))
-    print("IK angles error: " + str(np.subtract(q_target, ik_val)))
-
-    __analyse_history(history)
 
 
 def test_ik_pseudo():
@@ -293,6 +289,48 @@ def test_ik_pseudo():
     __analyse_history(history)
 
 
-test()
+def test_fk():
+    print("Testing FK")
+    q = [np.pi/4., np.pi/2., -np.pi/4., -np.pi/2., -np.pi/6., np.pi]
+    print(transform(q, frame_id=JOINT6_FRAME))
+
+    clientID, joints = vrep_connect_and_get_handles()
+    for joint, _q in zip(joints, q):
+        vrep.simxSetJointPosition(clientID, joint, _q,
+                                  vrep.simx_opmode_blocking)
+
+    vrep.simxSynchronousTrigger(clientID)
+
+
+def test_ik_damped():
+    print("\r\nTesting IK via damped least squares")
+    q_source = np.array([0., 0., 0., 0., 0., 0.])
+    q_target = np.array([3.14/4, 3.14/2, -3.14/4, -3.14/2, -3.14/6, 3.14])
+    source = transform(q_source)
+    target = transform(q_target)
+
+    ikdls = timeit(ik.damped_least_squares)
+    ik_val, history = ikdls(J, q_source, source, target, transform,
+                            alpha=1.0, eps=0.00001, damping_ratio=0.1)
+    ik_ee = transform(ik_val)
+
+    # print("Source position is " + str(source))
+    # print("Target angles are: " + str(q_target))
+    print("Target position is " + str(target))
+    # print("IK solution is: " + str(ik_val*180./np.pi))
+    print("IK FK position is: " + str(ik_ee))
+    # print("IK EE vector error: " + str(np.subtract(target, ik_ee)))
+    # print("IK angles error: " + str(np.subtract(q_target, ik_val)))
+
+    # __analyse_history(history)
+    clientID, joints = vrep_connect_and_get_handles()
+    for joint, q in zip(joints, ik_val):
+        vrep.simxSetJointPosition(clientID, joint, q,
+                                  vrep.simx_opmode_blocking)
+
+    vrep.simxSynchronousTrigger(clientID)
+
+
+# test_fk()
 test_ik_damped()
-test_ik_pseudo()
+# test_ik_pseudo()
