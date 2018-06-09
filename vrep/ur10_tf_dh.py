@@ -29,13 +29,13 @@ class TF(object):
 
         self.shift_rot_mat = np.zeros((3, 3))
 
-    def get_pose(self, q, vec, frame_id):
+    def get_pose(self, q, vec, from_frame, to_frame):
         vec_homo = np.zeros((4,))
         vec_homo[:3] = vec[:]
         vec_homo[-1] = 1.0
 
         _q = np.add(self.offset, np.asarray(q))
-        frame_tf = self.get_frame(_q, frame_id)
+        frame_tf = self.get_frame(_q, from_frame, to_frame)
 
         # print("Q with offset: " + str(_q))
         # print("Frame tf is:\r\n" + str(frame_tf))
@@ -43,11 +43,11 @@ class TF(object):
         vec_pose = np.dot(frame_tf, vec_homo)
         return tf.quaternion_from_matrix(frame_tf), vec_pose[:-1]
 
-    def get_frame(self, q, frame_id):
-        frame_tf = self.__get_frame_transform(q, frame_id)
+    def get_frame(self, q, from_frame, to_frame):
+        frame_tf = self.__get_frame_transform(q, from_frame, to_frame)
         return frame_tf
 
-    def __get_frame_transform(self, q, frame_id):
+    def __get_frame_transform(self, q, from_frame, to_frame):
         Z = np.zeros((4, 4))
         X = np.zeros((4, 4))
 
@@ -57,12 +57,20 @@ class TF(object):
         tf_m[2, 2] = 1.0
         tf_m[3, 3] = 1.0
 
-        for i in range(frame_id):
-            self.__prepareZ(Z, q[i], self.d[i])
-            self.__prepareX(X, self.alpha[i], self.r[i])
+        if from_frame > to_frame:
+            for i in range(to_frame, from_frame):
+                self.__prepareZ(Z, q[i], self.d[i])
+                self.__prepareX(X, self.alpha[i], self.r[i])
 
-            tf_m = np.dot(tf_m, Z)
-            tf_m = np.dot(tf_m, X)
+                tf_m = np.dot(tf_m, Z)
+                tf_m = np.dot(tf_m, X)
+
+        elif from_frame == to_frame:
+            return np.eye(4)
+
+        else:
+            raise NotImplementedError("Transformation from parent to child"
+                                      " is not implemeted yet")
 
         return tf_m
 
@@ -130,7 +138,7 @@ def test_ur10_tf():
     q = np.zeros(6)
     for i in range(7):
         print("Joint " + str(i+1) + " pose")
-        orientation, position = tf_.get_pose(q, [0., 0., 0.], i)
+        orientation, position = tf_.get_pose(q, [0., 0., 0.], i, 0)
 
         print(np.add(position, world_shift))
         print(np.asarray(tf.euler_from_quaternion(orientation, axes="szyx")) *
@@ -140,7 +148,7 @@ def test_ur10_tf():
     q = [np.pi/4., np.pi/2., -np.pi/4., -np.pi/2., -np.pi/6., np.pi]
     for i in range(7):
         print("Joint " + str(i+1) + " pose")
-        orientation, position = tf_.get_pose(q, [0., 0., 0.], i)
+        orientation, position = tf_.get_pose(q, [0., 0., 0.], i, 0)
 
         print(np.add(position, world_shift))
         print(np.asarray(tf.euler_from_quaternion(orientation, axes="szyx")) *
