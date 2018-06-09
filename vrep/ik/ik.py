@@ -75,14 +75,16 @@ def damped_least_squares(J_fcn, q_start, s, t, fk_fcn,
 
         e_pos = np.subtract(ee_pos_des, ee_pos)
         e_quat = __compute_quat_error(ee_quat, ee_quat_des)
-        e = np.concatenate([e_pos, e_quat])
+        # e = np.concatenate([e_pos, e_quat])
+        e = e_pos
 
         dq = np.dot(np.dot(J.T, damped_mat_inv), e)
 
         q += dq*alpha
         s = fk_fcn(q)
 
-        diff = np.linalg.norm(np.subtract(ee_des, ee))
+        # ??? diff = np.linalg.norm(np.subtract(ee_des, ee))
+        diff = np.linalg.norm(e)
         __update_history(history, J, damped_mat_inv, diff, q, s)
 
         if diff <= eps:

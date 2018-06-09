@@ -82,7 +82,7 @@ rotations_axis = [ROT_AXIS_Z, ROT_AXIS_Z, ROT_AXIS_X, ROT_AXIS_X,
 rotation_axis_vec = [AXIS_Y, AXIS_Z, AXIS_X, AXIS_X, AXIS_X, AXIS_Z, AXIS_X]
 
 # Jacobian placeholder
-jacobian = np.zeros((6, 6), dtype=np.float64)
+jacobian = np.zeros((3, 6), dtype=np.float64)
 
 
 # Matrix used when rotating shift vector. Used in order not to allocate
@@ -210,7 +210,7 @@ def transform(q, frame_id=JOINT6_FRAME):
     return __transform(vec, frame_id)
 
 
-def J(q, use_orientation=True):
+def J(q, use_orientation=False):
     ee = transform(q, frame_id=JOINT6_FRAME)
 
     for i in range(1, JOINT6_FRAME+1):
@@ -273,17 +273,17 @@ def test_ik_damped():
     q_target = np.array([3.14/4, 3.14/2, -3.14/4, -3.14/2, -3.14/6, 3.14])
     source = transform(q_source)
     target = transform(q_target)
-    print("Source pose is " + str(source))
-    print("Target pose is " + str(target))
 
     ikdls = timeit(ik.damped_least_squares)
     ik_val, history = ikdls(J, q_source, source, target, transform,
                             alpha=1.0, eps=0.00001, damping_ratio=0.1)
     ik_ee = transform(ik_val)
 
+    print("Source pose is " + str(source))
+    print("Target pose is " + str(target))
     # print("Source position is " + str(source))
-    # print("Target angles are: " + str(q_target))
-    # print("IK solution is: " + str(ik_val*180./np.pi))
+    print("Target angles are: " + str(q_target))
+    print("IK solution is: " + str(ik_val))
     print("IK FK position is: " + str(ik_ee))
     # print("IK EE vector error: " + str(np.subtract(target, ik_ee)))
     # print("IK angles error: " + str(np.subtract(q_target, ik_val)))
