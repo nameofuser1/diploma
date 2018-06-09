@@ -3,9 +3,21 @@ import quaternion as quat
 import matplotlib.pyplot as plt
 import vrep
 from profiler import timeit
+import ros
+
+tf = ros.tf.transformations
 
 # from utils import *
 from ik import ik
+
+
+ROT_AXIS_X = 'x'
+ROT_AXIS_Y = 'y'
+ROT_AXIS_Z = 'z'
+
+AXIS_X = np.asarray([1, 0, 0])
+AXIS_Y = np.asarray([0, 1, 0])
+AXIS_Z = np.asarray([0, 0, 1])
 
 UR10_DOF = 6
 
@@ -47,6 +59,7 @@ JOINT3_FRAME = 3
 JOINT4_FRAME = 4
 JOINT5_FRAME = 5
 JOINT6_FRAME = 6
+EE_FRAME = 7
 
 TF01_ID = 0
 TF12_ID = 1
@@ -57,16 +70,11 @@ TF56_ID = 5
 TF67_ID = 6
 TF_NUM = 7
 
-ROT_AXIS_X = 'x'
-ROT_AXIS_Y = 'y'
-ROT_AXIS_Z = 'z'
-
-AXIS_X = np.asarray([1, 0, 0])
-AXIS_Y = np.asarray([0, 1, 0])
-AXIS_Z = np.asarray([0, 0, 1])
+# 1 for WORLD frame and 1 for EE FRAME
+FRAMES_NUM = UR10_DOF + 2
 
 # One additional trasformation is from World frame to UR10 base frame
-TF = [np.zeros((4, 4), dtype=np.float64) for i in range(UR10_DOF+1)]
+TF = [np.zeros((4, 4), dtype=np.float64) for i in range(FRAMES_NUM)]
 
 # Rotation signs for each transformation
 TF_SIGN = [1., 1., -1., -1., -1., 1., -1.]
@@ -82,8 +90,7 @@ rotations_axis = [ROT_AXIS_Z, ROT_AXIS_Z, ROT_AXIS_X, ROT_AXIS_X,
 rotation_axis_vec = [AXIS_Y, AXIS_Z, AXIS_X, AXIS_X, AXIS_X, AXIS_Z, AXIS_X]
 
 # Jacobian placeholder
-jacobian = np.zeros((3, 6), dtype=np.float64)
-
+jacobian = np.zeros((6, 6), dtype=np.float64)
 
 # Matrix used when rotating shift vector. Used in order not to allocate
 # new on on each computation
@@ -153,7 +160,7 @@ def __tf_matrix_config(M, axis, q, ee_vec):
     __tf_shift_config(M, axis, q, ee_vec)
 
 
-def __prepare_transformation_matrices(q, frame_id):
+def __prepare_transformation_matrices(q, from_frame, to_frame):
     """
     @brief      Prepares transformation matrices for given q.
                 After matrices are configured transformation can be calculated
@@ -163,8 +170,8 @@ def __prepare_transformation_matrices(q, frame_id):
     @param[in]  frame_id    -   frame id from which we transform.
                                 Transformation is to WORLD_FRAME
     """
-    for i in range(frame_id+1):
-        if i == 0:
+    for i in range(to_frame, from_frame):
+        if i == WORLD_FRAME:
             _q = 0.0
         else:
             _q = q[i-1]
@@ -173,13 +180,11 @@ def __prepare_transformation_matrices(q, frame_id):
         tf_sign = TF_SIGN[i]
         axis = rotations_axis[i]
         ee_vec = relative_origins[i]
+
         __tf_matrix_config(tf_m, axis, tf_sign*_q, ee_vec)
 
 
-_FLOAT_EPS_4 = np.finfo(float).eps * 4.0
-
-
-def __transform(vec, frame_id):
+def __transform(vec, from_frame, to_frame):
     """
     Calculates transformation for given end effector
 
@@ -187,34 +192,42 @@ def __transform(vec, frame_id):
                               Transformation will be performed from this
                               frame to world one.
     """
-    if frame_id == WORLD_FRAME:
-        return np.dot(TF[0], vec)[:-1],\
-            quat.from_rotation_matrix(TF[0][:-1, :-1])
 
+    if from_frame == to_frame:
+        return np.asarray(vec), np.eye(3)
     else:
-        tf_add_rot = np.zeros((4, 4))
-        __tf_matrix_config(tf_add_rot, ROT_AXIS_Y, -np.pi/2, [0., 0., 0., 1.])
-        tf_m = np.dot(np.linalg.multi_dot(TF[:frame_id+1]), tf_add_rot)
+        tf_m = np.linalg.multi_dot(TF[to_frame:from_frame])
+
+        if from_frame == EE_FRAME:
+            tf_add_rot = np.zeros((4, 4))
+            __tf_matrix_config(tf_add_rot, ROT_AXIS_Y,
+                               -np.pi/2, [0., 0., 0., 1.])
+
+            tf_m = np.dot(tf_m, tf_add_rot)
+
+        print(tf_m)
 
         position = np.dot(tf_m, vec)[:-1]
-        orientation = quat.from_rotation_matrix(tf_m[:-1, :-1])
+        orientation = tf_m[:-1, :-1]
 
         return position, orientation
 
 
-def transform(q, frame_id=JOINT6_FRAME):
+def transform(q, from_frame=EE_FRAME, to_frame=WORLD_FRAME):
     """
     """
     vec = np.asarray([0., 0., 0., 1.])
-    __prepare_transformation_matrices(q, frame_id)
-    return __transform(vec, frame_id)
+    __prepare_transformation_matrices(q, from_frame, to_frame)
+
+    P, rot =  __transform(vec, from_frame, to_frame)
+    return P, quat.from_rotation_matrix(rot)
 
 
-def J(q, use_orientation=False):
-    ee = transform(q, frame_id=JOINT6_FRAME)
+def J(q, use_orientation=True):
+    ee = transform(q, frame_id=EE_FRAME)
 
-    for i in range(1, JOINT6_FRAME+1):
-        pose = transform(q, frame_id=i)
+    for i in range(1, EE_FRAME):
+        pose = transform(q, to_frame=WORLD_FRAME, from_frame=i)
 
         radius_vector = np.subtract(ee[0], pose[0])
         rot_axis = TF_SIGN[i]*rotation_axis_vec[i]
@@ -258,7 +271,7 @@ def __analyse_history(history):
     plt.xlabel("Iteration number, N")
     plt.ylabel("Magnitude, L2 norm")
 
-    l1, = plt.plot(history['diff'], '-', label='Position error magnitude')
+    l1, = plt.plot(history['diff'], '-', label='Pose error magnitude')
     plt.legend(handles=[l1])
     plt.show()
 
@@ -276,17 +289,21 @@ def test_ik_damped():
 
     ikdls = timeit(ik.damped_least_squares)
     ik_val, history = ikdls(J, q_source, source, target, transform,
-                            alpha=1.0, eps=0.00001, damping_ratio=0.1)
+                            alpha=0.3, eps=0.01, damping_ratio=0.4,
+                            max_iter=500)
+
+    __analyse_history(history)
+
+    if ik_val is None:
+        return False
+
     ik_ee = transform(ik_val)
 
     print("Source pose is " + str(source))
     print("Target pose is " + str(target))
-    # print("Source position is " + str(source))
     print("Target angles are: " + str(q_target))
     print("IK solution is: " + str(ik_val))
     print("IK FK position is: " + str(ik_ee))
-    # print("IK EE vector error: " + str(np.subtract(target, ik_ee)))
-    # print("IK angles error: " + str(np.subtract(q_target, ik_val)))
 
     # __analyse_history(history)
     clientID, joints = vrep_connect_and_get_handles()
@@ -300,9 +317,25 @@ def test_ik_damped():
 
 def test_fk():
     print("Testing FK")
-    print(transform(np.zeros((6,)), frame_id=JOINT6_FRAME))
+
     q = [np.pi/4., np.pi/2., -np.pi/4., -np.pi/2., -np.pi/6., np.pi]
-    print(transform(q, frame_id=JOINT6_FRAME))
+
+    src = transform(np.zeros((6,)), from_frame=EE_FRAME, to_frame=WORLD_FRAME)
+    dst = transform(q, from_frame=EE_FRAME, to_frame=WORLD_FRAME)
+
+    src_quat_f = [src[1].x, src[1].y, src[1].z, src[1].w]
+    dst_quat_f = [dst[1].x, dst[1].y, dst[1].z, dst[1].w]
+
+    src_euler = np.asarray(tf.euler_from_quaternion(src_quat_f, axes='szyx'),
+                           dtype=np.float32)
+    dst_euler = np.asarray(tf.euler_from_quaternion(dst_quat_f, axes="szyx"),
+                           dtype=np.float32)
+
+    print("Source position: " + str(src[0]) + "; source orientation: " +
+          str(src_euler*180./np.pi))
+
+    print("Destination position: " + str(dst[0]) + "; destination orientation: "
+          + str(dst_euler*180./np.pi))
 
     clientID, joints = vrep_connect_and_get_handles()
     for joint, _q in zip(joints, q):
@@ -311,6 +344,6 @@ def test_fk():
 
     vrep.simxSynchronousTrigger(clientID)
 
-# test_fk()
-test_ik_damped()
+test_fk()
+# test_ik_damped()
 # test_ik_pseudo()

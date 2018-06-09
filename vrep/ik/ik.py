@@ -49,7 +49,7 @@ def __compute_quat_error(quat1, quat2):
 
 
 def damped_least_squares(J_fcn, q_start, s, t, fk_fcn,
-                         alpha=0.01,
+                         alpha=0.01, kp=1.0, ko=1.0,
                          max_iter=10000, eps=0.01,
                          damping_ratio=0.1):
     history = __create_history()
@@ -73,10 +73,10 @@ def damped_least_squares(J_fcn, q_start, s, t, fk_fcn,
         ee_quat = __quat2arr(s[1])
         ee = np.concatenate([ee_pos, ee_quat])
 
-        e_pos = np.subtract(ee_pos_des, ee_pos)
-        e_quat = __compute_quat_error(ee_quat, ee_quat_des)
-        # e = np.concatenate([e_pos, e_quat])
-        e = e_pos
+        e_pos = kp*np.subtract(ee_pos_des, ee_pos)
+        e_quat = ko*__compute_quat_error(ee_quat, ee_quat_des)
+        e = np.concatenate([e_pos, e_quat])
+        # e = e_pos
 
         dq = np.dot(np.dot(J.T, damped_mat_inv), e)
 
@@ -94,3 +94,5 @@ def damped_least_squares(J_fcn, q_start, s, t, fk_fcn,
             print("Pos error: " + str(e_pos))
             # print("Diff is " + str(diff))
             # alpha = min(max(_alpha*diff/start_diff, min_alpha), max_alpha)
+
+    return None, history
