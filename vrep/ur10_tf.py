@@ -76,6 +76,7 @@ FRAMES_NUM = UR10_DOF + 2
 TF = [np.zeros((4, 4), dtype=np.float64) for i in range(FRAMES_NUM)]
 
 # Rotation signs for each transformation
+# TF_SIGN = [1., 1., 1., 1., 1., 1., 1.]
 TF_SIGN = [1., 1., -1., -1., -1., 1., -1.]
 
 # List of relative origins
@@ -193,21 +194,23 @@ def __transform(vec, from_frame, to_frame):
     """
 
     if from_frame == to_frame:
-        return np.asarray(vec), np.eye(3)
+        tf_m = np.eye(4)
+    elif from_frame - to_frame == 1:
+        tf_m = TF[to_frame]
     else:
         tf_m = np.linalg.multi_dot(TF[to_frame:from_frame])
 
-        if from_frame == EE_FRAME:
-            tf_add_rot = np.zeros((4, 4))
-            __tf_matrix_config(tf_add_rot, ROT_AXIS_Y,
-                               -np.pi/2, [0., 0., 0., 1.])
+    if from_frame == EE_FRAME:
+        tf_add_rot = np.zeros((4, 4))
+        __tf_matrix_config(tf_add_rot, ROT_AXIS_Y,
+                            -np.pi/2, [0., 0., 0., 1.])
 
-            tf_m = np.dot(tf_m, tf_add_rot)
+        tf_m = np.dot(tf_m, tf_add_rot)
 
-        position = np.dot(tf_m, vec)[:-1]
-        orientation = tf_m
+    position = np.dot(tf_m, vec)[:-1]
+    orientation = tf_m
 
-        return position, orientation
+    return position, orientation
 
 
 def transform(q, from_frame=EE_FRAME, to_frame=WORLD_FRAME):
@@ -221,7 +224,7 @@ def transform(q, from_frame=EE_FRAME, to_frame=WORLD_FRAME):
 
 
 def J(q, use_orientation=True):
-    ee = transform(q, frame_id=EE_FRAME)
+    ee = transform(q, from_frame=EE_FRAME, to_frame=WORLD_FRAME)
 
     for i in range(1, EE_FRAME):
         pose = transform(q, to_frame=WORLD_FRAME, from_frame=i)
@@ -233,7 +236,7 @@ def J(q, use_orientation=True):
         jacobian[:3, i-1] = jacobian_vec[:]
 
         if use_orientation:
-            jacobian[3:, i-1] = rot_axis[:]
+            jacobian[3:, i-1] = TF_SIGN[i]*rot_axis[:]
 
     return jacobian
 
@@ -280,29 +283,33 @@ def __analyse_history(history):
 def test_ik_damped():
     print("\r\nTesting IK via damped least squares")
     q_source = np.array([0., 0., 0., 0., 0., 0.])
-    q_target = np.array([3.14/4, 3.14/2, -3.14/4, -3.14/2, -3.14/6, 3.14])
+    q_target = [np.pi/4., np.pi/2., -np.pi/4., -np.pi/2., -np.pi/6., np.pi]
     source = transform(q_source)
     target = transform(q_target)
 
     ikdls = timeit(ik.damped_least_squares)
-    ik_val, history = ikdls(J, q_source, source, target, transform,
-                            alpha=0.3, eps=0.01, damping_ratio=0.4,
-                            max_iter=500)
+    ik_status, ik_val, history = ikdls(J, q_source, source, target, transform,
+                                       alpha=0.1, eps=0.1, damping_ratio=0.6,
+                                       max_iter=5000, kp=1.0, ko=0.5)
+
+    if not ik_status:
+        print("FAILED TO SOLVE IK")
+
+    ik_ee = transform(ik_val, from_frame=EE_FRAME, to_frame=WORLD_FRAME)
+
+    print("Source pose is " + str(source[0]) + ", " +
+          str(np.asarray(tf.euler_from_quaternion(source[1], axes="szyx")) *
+              180./np.pi))
+    print("Target pose is " + str(target[0]) + ", " +
+          str(np.asarray(tf.euler_from_quaternion(target[1], axes="szyx")) *
+              180./np.pi))
+    print("IK pose is: " + str(ik_ee[0]) + ", " +
+          str(np.asarray(tf.euler_from_quaternion(ik_ee[1], axes="szyx")) *
+              180./np.pi))
+    print("Target angles are: " + str(q_target))
+    print("IK angles are: " + str(ik_val))
 
     __analyse_history(history)
-
-    if ik_val is None:
-        return False
-
-    ik_ee = transform(ik_val)
-
-    print("Source pose is " + str(source))
-    print("Target pose is " + str(target))
-    print("Target angles are: " + str(q_target))
-    print("IK solution is: " + str(ik_val))
-    print("IK FK position is: " + str(ik_ee))
-
-    # __analyse_history(history)
     clientID, joints = vrep_connect_and_get_handles()
 
     for joint, q in zip(joints, ik_val):

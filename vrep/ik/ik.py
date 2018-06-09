@@ -1,5 +1,7 @@
 import numpy as np
-import quaternion as quat
+import ros
+
+tf = ros.tf.transformations
 
 
 class IKFailedException(Exception):
@@ -59,7 +61,7 @@ def damped_least_squares(J_fcn, q_start, s, t, fk_fcn,
     dmp_sq = np.square(damping_ratio)
 
     ee_pos_des = t[0]
-    ee_quat_des = __quat2arr(t[1])
+    ee_quat_des = t[1]
     ee_des = np.concatenate([ee_pos_des, ee_quat_des])
 
     dq = 0
@@ -70,29 +72,28 @@ def damped_least_squares(J_fcn, q_start, s, t, fk_fcn,
         damped_mat_inv = np.linalg.inv(damped_mat)
 
         ee_pos = s[0]
-        ee_quat = __quat2arr(s[1])
+        ee_quat = s[1]
         ee = np.concatenate([ee_pos, ee_quat])
 
-        e_pos = kp*np.subtract(ee_pos_des, ee_pos)
-        e_quat = ko*__compute_quat_error(ee_quat, ee_quat_des)
-        e = np.concatenate([e_pos, e_quat])
-        # e = e_pos
+        e_pos = np.subtract(ee_pos_des, ee_pos)
+        e_quat = __compute_quat_error(ee_quat, ee_quat_des)
+        e_full = np.concatenate([e_pos, e_quat])
+        e = np.concatenate([kp*e_pos, ko*e_quat])
 
         dq = np.dot(np.dot(J.T, damped_mat_inv), e)
 
         q += dq*alpha
         s = fk_fcn(q)
 
-        # ??? diff = np.linalg.norm(np.subtract(ee_des, ee))
-        diff = np.linalg.norm(e)
+        diff = np.linalg.norm(e_full)
         __update_history(history, J, damped_mat_inv, diff, q, s)
 
         if diff <= eps:
-            return np.remainder(q, 2*np.pi), history
+            return True, np.remainder(q, 2*np.pi), history
         elif i % 10 == 0:
             print("Quat error: " + str(e_quat))
             print("Pos error: " + str(e_pos))
             # print("Diff is " + str(diff))
             # alpha = min(max(_alpha*diff/start_diff, min_alpha), max_alpha)
 
-    return None, history
+    return False, np.remainder(q, 2*np.pi), history
