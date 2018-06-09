@@ -11,3 +11,4 @@ tex/*.xml
 *.swp
 *.swo
 *.pyc
+ROS/CMakeLists.txt.user
