@@ -1,4 +1,5 @@
 import numpy as np
+import quaternion as quat
 
 
 class IKFailedException(Exception):
@@ -29,84 +30,65 @@ def __compute_pseudoinverse_jacobian(J):
     return np.linalg.pinv(J)
 
 
-def ik_pseudoinverse_jacobian(J_fcn, q_start, s, t, fk_fcn,
-                              alpha=0.1, max_iter=10000, eps=0.01):
-    """
-    Computes inverse kinematics using pseudoinverse Jacobian
+def skew(x):
+    return np.array([[0, -x[2], x[1]],
+                     [x[2], 0, -x[0]],
+                     [-x[1], x[0], 0]])
 
-    @param[in]      J       -   Function which produces Jacobian J_fnc(q)
-    @param[in]      q_start -   source joint values
-    @param[in]      s       -   source position
-    @param[in]      t       -   target position
-    @param[in]      fk_fcn  -   function that computes forward kinematics
-                                takes q as a parameter and returns end effector
-                                position
-    @param[in]      alpha   -   descent step
-    @param[in]      max_iter -  maximum iterations number
-    @param[in]      eps     -   error tolerance
 
-    @raise          IKFailedException in case of solution failure
+def __quat2arr(quat):
+    return np.asarray([quat.x, quat.y, quat.z, quat.w])
 
-    @returns        q which corresponds to target position in case of success
-                    None in case of failure
-    """
-    history = __create_history()
-    _alpha = alpha
-    q = np.asarray(q_start)
-    start_diff = np.linalg.norm(np.subtract(t, s))
 
-    dq = 0
-    for i in range(max_iter):
-        J = J_fcn(q)
-        J_pinv = __compute_pseudoinverse_jacobian(J)
+def __compute_quat_error(quat1, quat2):
+    S = skew(quat2[0:3])
+    e = np.dot(quat1[3], quat2[0:3]) - np.dot(quat2[3], quat1[0:3]) -\
+        np.dot(S, quat1[0:3])
 
-        e = np.subtract(t, s)
-        dq = np.dot(J_pinv, e)
-        q += dq*alpha
-
-        s = fk_fcn(q)
-
-        diff = np.linalg.norm(np.subtract(t, s))
-        __update_history(history, J, J_pinv, diff, q, s)
-
-        if diff <= eps:
-            return np.remainder(q, 2*np.pi), history
-        elif i % 10 == 0:
-            print("Diff is " + str(diff))
-            # alpha = min(max(_alpha*diff/start_diff, 0.001), 0.2)
-
-    raise IKFailedException("Failed to compute IK with pseudo inverse Jacobian")
+    return e
 
 
 def damped_least_squares(J_fcn, q_start, s, t, fk_fcn,
-                         alpha=0.3, min_alpha=0.05, max_alpha=0.35,
+                         alpha=0.01,
                          max_iter=10000, eps=0.01,
-                         damping_ratio=0.3):
+                         damping_ratio=0.1):
     history = __create_history()
     _alpha = alpha
     q = np.asarray(q_start)
-    start_diff = np.linalg.norm(np.subtract(t, s))
 
     dmp_sq = np.square(damping_ratio)
+
+    ee_pos_des = t[0]
+    ee_quat_des = __quat2arr(t[1])
+    ee_des = np.concatenate([ee_pos_des, ee_quat_des])
 
     dq = 0
     for i in range(max_iter):
         J = J_fcn(q)
 
-        damped_mat = np.add(np.dot(J, J.T), np.eye(3)*dmp_sq)
+        damped_mat = np.add(np.dot(J, J.T), np.eye(J.shape[0])*dmp_sq)
         damped_mat_inv = np.linalg.inv(damped_mat)
 
-        e = np.subtract(t, s)
+        ee_pos = s[0]
+        ee_quat = __quat2arr(s[1])
+        ee = np.concatenate([ee_pos, ee_quat])
+
+        e_pos = np.subtract(ee_pos_des, ee_pos)
+        e_quat = __compute_quat_error(ee_quat, ee_quat_des)
+        e = np.concatenate([e_pos, e_quat])
+
         dq = np.dot(np.dot(J.T, damped_mat_inv), e)
 
         q += dq*alpha
         s = fk_fcn(q)
 
-        diff = np.linalg.norm(np.subtract(t, s))
+        diff = np.linalg.norm(np.subtract(ee_des, ee))
         __update_history(history, J, damped_mat_inv, diff, q, s)
 
         if diff <= eps:
             return np.remainder(q, 2*np.pi), history
         elif i % 10 == 0:
-            print("Diff is " + str(diff))
+            print("Quat error: " + str(e_quat))
+            print("Pos error: " + str(e_pos))
+            # print("Diff is " + str(diff))
             # alpha = min(max(_alpha*diff/start_diff, min_alpha), max_alpha)

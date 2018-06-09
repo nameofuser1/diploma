@@ -33,7 +33,6 @@ namespace rvt = rviz_visual_tools;
 static moveit_visual_tools::MoveItVisualTools* visual_tools;
 
 
-
 static bool prepare_next_cell(moveit::planning_interface::MoveGroupInterface &move_group,
                               ros::ServiceClient&,
                               uint32_t, uint32_t);
@@ -45,9 +44,12 @@ static bool move_to_cell_pick_pose(moveit::planning_interface::MoveGroupInterfac
 static bool move_to_home(moveit::planning_interface::MoveGroupInterface &move_group);
 static bool plan_and_execute(moveit::planning_interface::MoveGroupInterface &move_group);
 
+
+static void visualize_path(moveit_msgs::RobotTrajectory &tr, robot_state::RobotState &robot_state);
 static void visualize_pose(moveit::planning_interface::MoveGroupInterface &move_group, geometry_msgs::Pose &pose);
 static void visualize_pose(moveit::planning_interface::MoveGroupInterface &move_group, std::vector<double> q);
 static void publish_state(robot_state::RobotState &pose_state);
+
 
 int main(int argc, char **argv)
 {
@@ -213,7 +215,7 @@ static bool move_after_pick(moveit::planning_interface::MoveGroupInterface &move
     //q.at(5) = (left_half) ? -M_PI/2.0 : M_PI/2.0;
 
     /* Transition to Cartesian space */
-
+    /*
     robot_model::RobotModelConstPtr robot_model  = move_group.getRobotModel();
     robot_state::RobotState kinematic_state(robot_model);
 
@@ -237,9 +239,9 @@ static bool move_after_pick(moveit::planning_interface::MoveGroupInterface &move
 
     ROS_INFO_STREAM("After pick second required position:" << std::endl << target_pose);
     move_group.clearPathConstraints();
-    move_group.setPoseTarget(target_pose);
+    move_group.setPoseTarget(target_pose);*/
 
-    //move_group.setJointValueTarget(q);
+    move_group.setJointValueTarget(q);
     visualize_pose(move_group, q);
     if(!plan_and_execute(move_group))
     {
@@ -357,6 +359,10 @@ static bool plan_and_execute(moveit::planning_interface::MoveGroupInterface &mov
         return false;
     }
 
+    moveit_msgs::RobotTrajectory &tr = my_plan.trajectory_;
+    robot_state::RobotState pose_state(*move_group.getCurrentState());
+    visualize_path(tr, pose_state);
+
     success = (move_group.execute(my_plan) == moveit::planning_interface::MoveItErrorCode::SUCCESS);
     if(!success)
     {
@@ -395,9 +401,36 @@ static void visualize_pose(moveit::planning_interface::MoveGroupInterface &move_
 }
 
 
+static void visualize_path(moveit_msgs::RobotTrajectory &tr, robot_state::RobotState &robot_state)
+{
+    if(!visual_tools->publishTrajectoryPath(tr, robot_state, true))
+    {
+        ROS_ERROR("Failed to publish trajectory");
+    }
+}
+
+
 static void publish_state(robot_state::RobotState &pose_state)
 {
-    visual_tools->publishRobotState(pose_state);
-    visual_tools->trigger();
+    Eigen::Affine3d pose;
+    pose = Eigen::AngleAxisd(M_PI/4, Eigen::Vector3d::UnitY()); // rotate along X axis by 45 degrees
+    pose.translation() = Eigen::Vector3d( 0.1, 0.1, 0.1 ); // translate x,y,z
+
+    // Publish arrow vector of pose
+    ROS_INFO("Publishing Arrow");
+    if(!visual_tools->publishArrow(pose, rviz_visual_tools::RED, rviz_visual_tools::LARGE))
+    {
+        ROS_ERROR("Failed to publish arrow");
+    }
+
+    if(!visual_tools->publishRobotState(pose_state))
+    {
+        ROS_ERROR("Failed to publish robot state");
+    }
+
+    if(!visual_tools->trigger())
+    {
+        ROS_ERROR("Failed to trigger publishing");
+    }
 }
 

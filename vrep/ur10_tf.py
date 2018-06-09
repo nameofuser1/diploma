@@ -1,5 +1,5 @@
 import numpy as np
-import sympy as sym
+import quaternion as quat
 import matplotlib.pyplot as plt
 import vrep
 from profiler import timeit
@@ -10,7 +10,7 @@ from ik import ik
 UR10_DOF = 6
 
 # Create symbols for each angle
-q = [sym.Symbol('q' + str(i)) for i in range(UR10_DOF)]
+# q = [sym.Symbol('q' + str(i)) for i in range(UR10_DOF)]
 
 # Origins
 O0 = np.asarray([0.0,     0.0,    0.0,    0.])
@@ -79,10 +79,10 @@ rotations_axis = [ROT_AXIS_Z, ROT_AXIS_Z, ROT_AXIS_X, ROT_AXIS_X,
                   ROT_AXIS_X, ROT_AXIS_Z, ROT_AXIS_X]
 
 # Rotation unit vectors
-rotation_axis_vec = [AXIS_Z, AXIS_Z, AXIS_X, AXIS_X, AXIS_X, AXIS_Z, AXIS_X]
+rotation_axis_vec = [AXIS_Y, AXIS_Z, AXIS_X, AXIS_X, AXIS_X, AXIS_Z, AXIS_X]
 
 # Jacobian placeholder
-jacobian = np.zeros((3, 6), dtype=np.float64)
+jacobian = np.zeros((6, 6), dtype=np.float64)
 
 
 # Matrix used when rotating shift vector. Used in order not to allocate
@@ -111,7 +111,7 @@ def __tf_rotation_config(M, axis, q):
     elif axis == ROT_AXIS_Y:
         M[0, 0] = cs(q)
         M[0, 2] = sn(q)
-        M[1, 1] = 1.,
+        M[1, 1] = 1.
         M[2, 0] = -sn(q)
         M[2, 2] = cs(q)
 
@@ -151,7 +151,6 @@ def __tf_matrix_config(M, axis, q, ee_vec):
     M.fill(0.)
     __tf_rotation_config(M, axis, q)
     __tf_shift_config(M, axis, q, ee_vec)
-    # np.around(M, decimals=4, out=M)
 
 
 def __prepare_transformation_matrices(q, frame_id):
@@ -166,7 +165,7 @@ def __prepare_transformation_matrices(q, frame_id):
     """
     for i in range(frame_id+1):
         if i == 0:
-            _q = 0.
+            _q = 0.0
         else:
             _q = q[i-1]
 
@@ -175,6 +174,9 @@ def __prepare_transformation_matrices(q, frame_id):
         axis = rotations_axis[i]
         ee_vec = relative_origins[i]
         __tf_matrix_config(tf_m, axis, tf_sign*_q, ee_vec)
+
+
+_FLOAT_EPS_4 = np.finfo(float).eps * 4.0
 
 
 def __transform(vec, frame_id):
@@ -186,11 +188,18 @@ def __transform(vec, frame_id):
                               frame to world one.
     """
     if frame_id == WORLD_FRAME:
-        return np.dot(TF[0], vec)[:-1]
+        return np.dot(TF[0], vec)[:-1],\
+            quat.from_rotation_matrix(TF[0][:-1, :-1])
 
     else:
-        tf_m = np.linalg.multi_dot(TF[:frame_id+1])
-        return np.dot(tf_m, vec)[:-1]
+        tf_add_rot = np.zeros((4, 4))
+        __tf_matrix_config(tf_add_rot, ROT_AXIS_Y, -np.pi/2, [0., 0., 0., 1.])
+        tf_m = np.dot(np.linalg.multi_dot(TF[:frame_id+1]), tf_add_rot)
+
+        position = np.dot(tf_m, vec)[:-1]
+        orientation = quat.from_rotation_matrix(tf_m[:-1, :-1])
+
+        return position, orientation
 
 
 def transform(q, frame_id=JOINT6_FRAME):
@@ -201,33 +210,27 @@ def transform(q, frame_id=JOINT6_FRAME):
     return __transform(vec, frame_id)
 
 
-def O(q):
-    return np.asarray([-q[1] - q[2] - q[3] - q[5],
-                       0,
-                       q[0] + q[4]])
-
-
-def J(q, use_orientation=False):
+def J(q, use_orientation=True):
     ee = transform(q, frame_id=JOINT6_FRAME)
 
-    for i in range(JOINT6_FRAME):
-        joint_pos = transform(q, frame_id=i)
+    for i in range(1, JOINT6_FRAME+1):
+        pose = transform(q, frame_id=i)
 
-        radius_vector = np.subtract(ee, joint_pos)
+        radius_vector = np.subtract(ee[0], pose[0])
         rot_axis = TF_SIGN[i]*rotation_axis_vec[i]
 
         jacobian_vec = np.cross(rot_axis, radius_vector)
-        jacobian[:3, i] = jacobian_vec[:]
+        jacobian[:3, i-1] = jacobian_vec[:]
 
-    if use_orientation:
-        pass
+        if use_orientation:
+            jacobian[3:, i-1] = rot_axis[:]
 
     return jacobian
 
 
 def vrep_connect_and_get_handles():
     vrep.simxFinish(-1)
-    clientID=vrep.simxStart('127.0.0.1', 5450, True, True, 5000, 5)
+    clientID = vrep.simxStart('127.0.0.1', 5450, True, True, 5000, 5)
     joints = []
 
     joint_base_name = "UR10_joint"
@@ -247,8 +250,6 @@ def vrep_connect_and_get_handles():
     return clientID, joints
 
 
-
-
 def __analyse_history(history):
     Jinv_mag = [np.linalg.norm(Jinv) for Jinv in history['Jinv']]
 
@@ -266,31 +267,40 @@ def __analyse_history(history):
     plt.show()
 
 
-
-def test_ik_pseudo():
-    print("\r\nTesting IK via pseudo inverse jacobian")
+def test_ik_damped():
+    print("\r\nTesting IK via damped least squares")
     q_source = np.array([0., 0., 0., 0., 0., 0.])
     q_target = np.array([3.14/4, 3.14/2, -3.14/4, -3.14/2, -3.14/6, 3.14])
     source = transform(q_source)
     target = transform(q_target)
+    print("Source pose is " + str(source))
+    print("Target pose is " + str(target))
 
-    ikpsj = timeit(ik.ik_pseudoinverse_jacobian)
-    ik_val, history = ikpsj(J, q_source, source, target,
-                            transform, alpha=0.25, eps=0.00001)
+    ikdls = timeit(ik.damped_least_squares)
+    ik_val, history = ikdls(J, q_source, source, target, transform,
+                            alpha=1.0, eps=0.00001, damping_ratio=0.1)
     ik_ee = transform(ik_val)
 
-    print("Target angles are: " + str(q_target))
-    print("Target position is " + str(target))
-    print("IK solution is: " + str(ik_val*180./np.pi))
+    # print("Source position is " + str(source))
+    # print("Target angles are: " + str(q_target))
+    # print("IK solution is: " + str(ik_val*180./np.pi))
     print("IK FK position is: " + str(ik_ee))
-    print("IK EE vector error: " + str(np.subtract(target, ik_ee)))
-    print("IK angles error: " + str(np.subtract(q_target, ik_val)))
+    # print("IK EE vector error: " + str(np.subtract(target, ik_ee)))
+    # print("IK angles error: " + str(np.subtract(q_target, ik_val)))
 
-    __analyse_history(history)
+    # __analyse_history(history)
+    clientID, joints = vrep_connect_and_get_handles()
+
+    for joint, q in zip(joints, ik_val):
+        vrep.simxSetJointPosition(clientID, joint, q,
+                                  vrep.simx_opmode_blocking)
+
+    vrep.simxSynchronousTrigger(clientID)
 
 
 def test_fk():
     print("Testing FK")
+    print(transform(np.zeros((6,)), frame_id=JOINT6_FRAME))
     q = [np.pi/4., np.pi/2., -np.pi/4., -np.pi/2., -np.pi/6., np.pi]
     print(transform(q, frame_id=JOINT6_FRAME))
 
@@ -300,36 +310,6 @@ def test_fk():
                                   vrep.simx_opmode_blocking)
 
     vrep.simxSynchronousTrigger(clientID)
-
-
-def test_ik_damped():
-    print("\r\nTesting IK via damped least squares")
-    q_source = np.array([0., 0., 0., 0., 0., 0.])
-    q_target = np.array([3.14/4, 3.14/2, -3.14/4, -3.14/2, -3.14/6, 3.14])
-    source = transform(q_source)
-    target = transform(q_target)
-
-    ikdls = timeit(ik.damped_least_squares)
-    ik_val, history = ikdls(J, q_source, source, target, transform,
-                            alpha=1.0, eps=0.00001, damping_ratio=0.1)
-    ik_ee = transform(ik_val)
-
-    # print("Source position is " + str(source))
-    # print("Target angles are: " + str(q_target))
-    print("Target position is " + str(target))
-    # print("IK solution is: " + str(ik_val*180./np.pi))
-    print("IK FK position is: " + str(ik_ee))
-    # print("IK EE vector error: " + str(np.subtract(target, ik_ee)))
-    # print("IK angles error: " + str(np.subtract(q_target, ik_val)))
-
-    # __analyse_history(history)
-    clientID, joints = vrep_connect_and_get_handles()
-    for joint, q in zip(joints, ik_val):
-        vrep.simxSetJointPosition(clientID, joint, q,
-                                  vrep.simx_opmode_blocking)
-
-    vrep.simxSynchronousTrigger(clientID)
-
 
 # test_fk()
 test_ik_damped()
