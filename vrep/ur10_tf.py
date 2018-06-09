@@ -1,5 +1,4 @@
 import numpy as np
-import quaternion as quat
 import matplotlib.pyplot as plt
 import vrep
 from profiler import timeit
@@ -205,10 +204,8 @@ def __transform(vec, from_frame, to_frame):
 
             tf_m = np.dot(tf_m, tf_add_rot)
 
-        print(tf_m)
-
         position = np.dot(tf_m, vec)[:-1]
-        orientation = tf_m[:-1, :-1]
+        orientation = tf_m
 
         return position, orientation
 
@@ -220,7 +217,7 @@ def transform(q, from_frame=EE_FRAME, to_frame=WORLD_FRAME):
     __prepare_transformation_matrices(q, from_frame, to_frame)
 
     P, rot =  __transform(vec, from_frame, to_frame)
-    return P, quat.from_rotation_matrix(rot)
+    return P, tf.quaternion_from_matrix(rot)
 
 
 def J(q, use_orientation=True):
@@ -323,12 +320,9 @@ def test_fk():
     src = transform(np.zeros((6,)), from_frame=EE_FRAME, to_frame=WORLD_FRAME)
     dst = transform(q, from_frame=EE_FRAME, to_frame=WORLD_FRAME)
 
-    src_quat_f = [src[1].x, src[1].y, src[1].z, src[1].w]
-    dst_quat_f = [dst[1].x, dst[1].y, dst[1].z, dst[1].w]
-
-    src_euler = np.asarray(tf.euler_from_quaternion(src_quat_f, axes='szyx'),
+    src_euler = np.asarray(tf.euler_from_quaternion(src[1], axes='szyx'),
                            dtype=np.float32)
-    dst_euler = np.asarray(tf.euler_from_quaternion(dst_quat_f, axes="szyx"),
+    dst_euler = np.asarray(tf.euler_from_quaternion(dst[1], axes="szyx"),
                            dtype=np.float32)
 
     print("Source position: " + str(src[0]) + "; source orientation: " +
