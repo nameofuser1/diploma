@@ -102,13 +102,13 @@
 Предположим, что наш полином зависит не от времени, а от параметра $u$. Пусть $u$ - функция времени вида $u(t) = \lambda t$. Тогда:
 \begin{align*}
 	&\dot{p}(u) = \frac{dp}{du}\frac{du}{dt} = \frac{dp}{du}\lambda \\
-	&\ddot{p}(u) = \frac{d^{2}u}{dt^{2}}(\frac{du}{dt})^{2} = \frac{d^{2}u}{dt^{2}}\lambda^{2}\\
+	&\ddot{p}(u) = \frac{d^{2}p}{du^{2}}(\frac{du}{dt})^{2} = \frac{d^{2}p}{du^{2}}\lambda^{2}\\
 	&\dotso
 \end{align*}
 
 В этом случае, чтобы удовлетворить наложенным ограничениям и обеспечить оптимальность траектории выберем $\lambda$ как:
 \begin{align*}
-	\lambda = min(\frac{v_{max}}{p_{max}^{1}(u)},\ \frac{a_{max}}{\sqrt{p_{max}^{2}(u)}}, \frac{j_{max}}{\sqrt[3]{p_{max}^{3}(u)}}, \dots)   
+	\lambda = min(\frac{v_{max}}{p_{max}^{1}(u)},\ \sqrt{\frac{a_{max}}{p_{max}^{2}(u)}}, \sqrt[3]{\frac{j_{max}}{p_{max}^{3}(u)}}, \dots)   
 \end{align*}
 
 После параметризации сплайна он уже зависит от времени, участки соответствующие его полиномам можно легко пересчитать по формуле:
