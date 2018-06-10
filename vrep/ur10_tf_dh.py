@@ -41,7 +41,9 @@ class TF(object):
         # print("Frame tf is:\r\n" + str(frame_tf))
 
         vec_pose = np.dot(frame_tf, vec_homo)
-        return tf.quaternion_from_matrix(frame_tf), vec_pose[:-1]
+        frame_tf[:, 3] = vec_pose[:]
+
+        return frame_tf
 
     def get_frame(self, q, from_frame, to_frame):
         frame_tf = self.__get_frame_transform(q, from_frame, to_frame)
@@ -122,37 +124,3 @@ class TF(object):
             M[1, 0] = sn(q)
             M[1, 1] = cs(q)
             M[2, 2] = 1.
-
-
-def test_ur10_tf():
-    world_shift = np.asarray([-0.25, 0.25, 0.0447])
-    r = [-0.0927, 0.6121, 0.5722, 0.0573, 0.0573, 0.0]
-    alpha = [-np.pi/2., 0.0, 0.0, np.pi/2., np.pi/2, 0.0]
-    d = [0.0833, 0.0194, -0.0066, 0.0584, 0.0586, 0.0]
-    offset = [0.0, 0.0, 0.0, 0.0, -np.pi, 0.0]
-    # offset = np.zeros((6,))
-    frames_num = 7
-    tf_ = TF(r[:frames_num], alpha[:frames_num], d[:frames_num],
-             offset[:frames_num])
-
-    q = np.zeros(6)
-    for i in range(7):
-        print("Joint " + str(i+1) + " pose")
-        orientation, position = tf_.get_pose(q, [0., 0., 0.], i, 0)
-
-        print(np.add(position, world_shift))
-        print(np.asarray(tf.euler_from_quaternion(orientation, axes="szyx")) *
-              180./np.pi)
-        print("")
-
-    q = [np.pi/4., np.pi/2., -np.pi/4., -np.pi/2., -np.pi/6., np.pi]
-    for i in range(7):
-        print("Joint " + str(i+1) + " pose")
-        orientation, position = tf_.get_pose(q, [0., 0., 0.], i, 0)
-
-        print(np.add(position, world_shift))
-        print(np.asarray(tf.euler_from_quaternion(orientation, axes="szyx")) *
-              180./np.pi)
-        print("")
-
-test_ur10_tf()

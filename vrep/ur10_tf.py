@@ -223,12 +223,29 @@ def transform(q, from_frame=EE_FRAME, to_frame=WORLD_FRAME):
     return P, tf.quaternion_from_matrix(rot)
 
 
+def __get_axis_from_quaternion(quat):
+    if 1+0.001 >= quat[3] >= 1.0 - 0.001:
+        return np.asarray([0.0, 0.0, 1.0])
+
+    i = quat[0] / np.sqrt(1. - quat[3]*quat[3])
+    j = quat[1] / np.sqrt(1. - quat[3]*quat[3])
+    k = quat[2] / np.sqrt(1. - quat[3]*quat[3])
+
+    axis = np.asarray([i, j, k])
+
+    return axis
+
+
 def J(q, use_orientation=True):
     ee = transform(q, from_frame=EE_FRAME, to_frame=WORLD_FRAME)
 
     for i in range(1, EE_FRAME):
         pose = transform(q, to_frame=WORLD_FRAME, from_frame=i)
 
+        position = pose[0]
+        orientation = pose[1]
+
+        # rot_axis = __get_axis_from_quaternion(orientation)
         radius_vector = np.subtract(ee[0], pose[0])
         rot_axis = TF_SIGN[i]*rotation_axis_vec[i]
 
@@ -347,4 +364,6 @@ def test_fk():
 
 test_fk()
 # test_ik_damped()
+# for origin in relative_origins:
+#    print(origin)
 # test_ik_pseudo()
