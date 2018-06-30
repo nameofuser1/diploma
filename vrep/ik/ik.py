@@ -90,10 +90,10 @@ def damped_least_squares(J_fcn, q_start, s, t, fk_fcn,
 
         if diff <= eps:
             return True, np.remainder(q, 2*np.pi), history
-        elif i % 10 == 0:
-            print("Quat error: " + str(e_quat))
-            print("Pos error: " + str(e_pos))
-            # print("Diff is " + str(diff))
-            # alpha = min(max(_alpha*diff/start_diff, min_alpha), max_alpha)
+        # elif i % 10 == 0:
+        # print("Quat error: " + str(e_quat))
+        # print("Pos error: " + str(e_pos))
+        # print("Diff is " + str(diff))
+        # alpha = min(max(_alpha*diff/start_diff, min_alpha), max_alpha)
 
     return False, np.remainder(q, 2*np.pi), history
