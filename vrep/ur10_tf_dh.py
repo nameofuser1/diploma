@@ -29,21 +29,17 @@ class TF(object):
 
         self.shift_rot_mat = np.zeros((3, 3))
 
-    def get_pose(self, q, vec, from_frame, to_frame):
-        vec_homo = np.zeros((4,))
-        vec_homo[:3] = vec[:]
-        vec_homo[-1] = 1.0
-
+    def get_pose(self, q, ee_pose, from_frame, to_frame):
         _q = np.add(self.offset, np.asarray(q))
         frame_tf = self.get_frame(_q, from_frame, to_frame)
 
         # print("Q with offset: " + str(_q))
         # print("Frame tf is:\r\n" + str(frame_tf))
 
-        vec_pose = np.dot(frame_tf, vec_homo)
-        frame_tf[:, 3] = vec_pose[:]
+        tf = np.dot(frame_tf, ee_pose)
+        # frame_tf[:, 3] = vec_pose[:]
 
-        return frame_tf
+        return tf
 
     def get_frame(self, q, from_frame, to_frame):
         frame_tf = self.__get_frame_transform(q, from_frame, to_frame)
@@ -61,8 +57,8 @@ class TF(object):
 
         if from_frame > to_frame:
             for i in range(to_frame, from_frame):
-                self.__prepareZ(Z, q[i], self.d[i])
-                self.__prepareX(X, self.alpha[i], self.r[i])
+                self._prepareZ(Z, q[i], self.d[i])
+                self._prepareX(X, self.alpha[i], self.r[i])
 
                 tf_m = np.dot(tf_m, Z)
                 tf_m = np.dot(tf_m, X)
@@ -76,16 +72,26 @@ class TF(object):
 
         return tf_m
 
-    def __prepareZ(self, Z, theta, d):
-        self.__tf_rotation_config(Z, TF.ROT_AXIS_Z, theta)
+    @staticmethod
+    def quat2euler(quat, axes="szyx", deg=False):
+        euler = np.asarray(tf.euler_from_quaternion(quat, axes=axes))
+        if deg:
+            euler = euler*180./np.pi
+
+        return euler
+
+    @staticmethod
+    def _prepareZ(Z, theta, d):
+        TF._tf_rotation_config(Z, TF.ROT_AXIS_Z, theta)
 
         Z[0, 3] = 0.0
         Z[1, 3] = 0.0
         Z[2, 3] = d
         Z[3, 3] = 1.0
 
-    def __prepareX(self, X, alpha, r):
-        self.__tf_rotation_config(X, TF.ROT_AXIS_Y, alpha)
+    @staticmethod
+    def _prepareX(X, alpha, r):
+        TF._tf_rotation_config(X, TF.ROT_AXIS_Y, alpha)
 
         X[0, 3] = r
         X[1, 3] = 0.0
@@ -93,7 +99,7 @@ class TF(object):
         X[3, 3] = 1.0
 
     @staticmethod
-    def __tf_rotation_config(M, axis, q):
+    def _tf_rotation_config(M, axis, q):
         """
         @brief      Configures rotation part of transformation matrix
 
