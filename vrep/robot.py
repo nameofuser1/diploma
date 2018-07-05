@@ -2,8 +2,10 @@ from ur10_tf_dh import TF
 import numpy as np
 import ros
 from ik import ik
+from robot_dynamics import ArmDynamics
 from ur10_controller import UR10JointPositionController
 from profiler import timeit
+
 
 ikdamped = ik.damped_least_squares
 tf = ros.tf.transformations
@@ -27,8 +29,10 @@ class UR10(object):
         TF._prepareZ(self._ee_pose, np.pi, 0.0274)
 
         self._jacobian = np.zeros((6, 6))
-
         self._controller = UR10JointPositionController()
+        self._dynamics_model = ArmDynamics(self._tf,
+                                           self._base_frame, self._ee_frame,
+                                           None, None)
 
     @property
     def q(self):
